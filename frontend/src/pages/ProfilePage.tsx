@@ -175,7 +175,24 @@ export const ProfilePage: React.FC = () => {
                   Address
                 </label>
                 <div className="px-4 py-3 bg-gray-50 rounded-xl font-medium text-gray-900">
-                  {user?.address || 'No address provided'}
+                  {user?.address ? (
+                    typeof user.address === 'string' ? (
+                      user.address
+                    ) : (
+                      <div className="space-y-1">
+                        {user.address.street && <div>{user.address.street}</div>}
+                        {(user.address.city || user.address.state || user.address.zipCode) && (
+                          <div>
+                            {user.address.city && `${user.address.city}`}
+                            {user.address.state && `, ${user.address.state}`}
+                            {user.address.zipCode && ` ${user.address.zipCode}`}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  ) : (
+                    'No address provided'
+                  )}
                 </div>
               </div>
             </div>
