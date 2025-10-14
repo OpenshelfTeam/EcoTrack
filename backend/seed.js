@@ -146,27 +146,30 @@ const seedData = async () => {
 
     console.log('✅ Created routes');
 
-    // Create sample tickets
-    await Ticket.create([
-      {
-        title: 'Damaged bin needs replacement',
-        description: 'My recycling bin has a crack on the side and cannot hold waste properly.',
-        category: 'damaged-bin',
-        priority: 'high',
-        status: 'open',
-        reporter: users[0]._id,
-        relatedBin: bins[0]._id,
-      },
-      {
-        title: 'Missed pickup last week',
-        description: 'The waste collection was scheduled but the team did not show up.',
-        category: 'missed-pickup',
-        priority: 'medium',
-        status: 'in-progress',
-        reporter: users[0]._id,
-        assignedTo: users[2]._id,
-      },
-    ]);
+    // Create sample tickets (manually set ticket numbers since we cleared the collection)
+    const ticket1 = new Ticket({
+      ticketNumber: 'TKT000001',
+      title: 'Damaged bin needs replacement',
+      description: 'My recycling bin has a crack on the side and cannot hold waste properly.',
+      category: 'damaged-bin',
+      priority: 'high',
+      status: 'open',
+      reporter: users[0]._id,
+      relatedBin: bins[0]._id,
+    });
+    await ticket1.save({ validateBeforeSave: false });
+
+    const ticket2 = new Ticket({
+      ticketNumber: 'TKT000002',
+      title: 'Missed pickup last week',
+      description: 'The waste collection was scheduled but the team did not show up.',
+      category: 'missed-pickup',
+      priority: 'medium',
+      status: 'in-progress',
+      reporter: users[0]._id,
+      assignedTo: users[2]._id,
+    });
+    await ticket2.save({ validateBeforeSave: false });
 
     console.log('✅ Created sample tickets');
     console.log('\n🎉 Seed data created successfully!');

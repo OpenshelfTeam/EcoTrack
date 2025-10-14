@@ -5,6 +5,17 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { BinsPage } from './pages/BinsPage';
+import { TicketsPage } from './pages/TicketsPage';
+import { PaymentsPage } from './pages/PaymentsPage';
+import { RoutesPage } from './pages/RoutesPage';
+import { CollectionsPage } from './pages/CollectionsPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
+import { FeedbackPage } from './pages/FeedbackPage';
+import { NotificationsPage } from './pages/NotificationsPage';
+import { PickupsPage } from './pages/PickupsPage';
+import { UsersPage } from './pages/UsersPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,7 +47,15 @@ function App() {
               path="/profile"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/pickups"
+              element={
+                <ProtectedRoute allowedRoles={['resident']}>
+                  <PickupsPage />
                 </ProtectedRoute>
               }
             />
@@ -44,7 +63,7 @@ function App() {
               path="/bins"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <BinsPage />
                 </ProtectedRoute>
               }
             />
@@ -52,7 +71,7 @@ function App() {
               path="/tickets"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <TicketsPage />
                 </ProtectedRoute>
               }
             />
@@ -60,7 +79,7 @@ function App() {
               path="/payments"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <PaymentsPage />
                 </ProtectedRoute>
               }
             />
@@ -68,7 +87,7 @@ function App() {
               path="/routes"
               element={
                 <ProtectedRoute allowedRoles={['collector', 'authority', 'operator', 'admin']}>
-                  <DashboardPage />
+                  <RoutesPage />
                 </ProtectedRoute>
               }
             />
@@ -76,7 +95,7 @@ function App() {
               path="/collections"
               element={
                 <ProtectedRoute allowedRoles={['collector', 'authority', 'admin']}>
-                  <DashboardPage />
+                  <CollectionsPage />
                 </ProtectedRoute>
               }
             />
@@ -84,7 +103,7 @@ function App() {
               path="/analytics"
               element={
                 <ProtectedRoute allowedRoles={['authority', 'admin']}>
-                  <DashboardPage />
+                  <AnalyticsPage />
                 </ProtectedRoute>
               }
             />
@@ -92,7 +111,7 @@ function App() {
               path="/feedback"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <FeedbackPage />
                 </ProtectedRoute>
               }
             />
@@ -100,7 +119,15 @@ function App() {
               path="/notifications"
               element={
                 <ProtectedRoute>
-                  <DashboardPage />
+                  <NotificationsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute allowedRoles={['operator', 'admin']}>
+                  <UsersPage />
                 </ProtectedRoute>
               }
             />
