@@ -127,7 +127,7 @@ export const getSmartBin = async (req, res) => {
 
 // @desc    Create smart bin
 // @route   POST /api/smart-bins
-// @access  Private (Operator, Admin)
+// @access  Private (Resident, Collector, Operator, Admin)
 export const createSmartBin = async (req, res) => {
   try {
     const bin = await SmartBin.create(req.body);

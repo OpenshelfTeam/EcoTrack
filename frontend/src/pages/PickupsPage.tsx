@@ -10,7 +10,7 @@ import { pickupService } from '../services/pickup.service';
 interface PickupRequest {
   id: string;
   address: string;
-  wasteType: 'general' | 'recyclable' | 'organic' | 'hazardous' | 'bulk';
+  wasteType: 'bulk' | 'hazardous' | 'electronic' | 'construction' | 'organic' | 'recyclable' | 'other';
   requestDate: string;
   preferredDate: string;
   preferredTime: 'morning' | 'afternoon' | 'evening';
@@ -92,7 +92,7 @@ export const PickupsPage = () => {
 
   const [newRequest, setNewRequest] = useState<Partial<PickupRequest>>({
     address: '123 Main St, Apt 4B',
-    wasteType: 'general',
+    wasteType: 'recyclable',
     preferredDate: '',
     preferredTime: 'morning',
     status: 'pending',
@@ -134,11 +134,13 @@ export const PickupsPage = () => {
 
   const getWasteTypeColor = (type: string) => {
     switch (type) {
-      case 'general': return 'bg-gray-100 text-gray-700';
-      case 'recyclable': return 'bg-blue-100 text-blue-700';
-      case 'organic': return 'bg-green-100 text-green-700';
-      case 'hazardous': return 'bg-red-100 text-red-700';
       case 'bulk': return 'bg-purple-100 text-purple-700';
+      case 'hazardous': return 'bg-red-100 text-red-700';
+      case 'electronic': return 'bg-yellow-100 text-yellow-700';
+      case 'construction': return 'bg-orange-100 text-orange-700';
+      case 'organic': return 'bg-green-100 text-green-700';
+      case 'recyclable': return 'bg-blue-100 text-blue-700';
+      case 'other': return 'bg-gray-100 text-gray-700';
       default: return 'bg-gray-100 text-gray-700';
     }
   };
@@ -179,7 +181,7 @@ export const PickupsPage = () => {
   const resetNewRequest = () => {
     setNewRequest({
       address: '123 Main St, Apt 4B',
-      wasteType: 'general',
+      wasteType: 'recyclable',
       preferredDate: '',
       preferredTime: 'morning',
       status: 'pending',
@@ -345,11 +347,13 @@ export const PickupsPage = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
                   <option value="all">All Types</option>
-                  <option value="general">General Waste</option>
-                  <option value="recyclable">Recyclable</option>
-                  <option value="organic">Organic</option>
-                  <option value="hazardous">Hazardous</option>
                   <option value="bulk">Bulk Items</option>
+                  <option value="hazardous">Hazardous Waste</option>
+                  <option value="electronic">Electronic Waste</option>
+                  <option value="construction">Construction Waste</option>
+                  <option value="organic">Organic Waste</option>
+                  <option value="recyclable">Recyclable</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
             </div>
@@ -504,11 +508,13 @@ export const PickupsPage = () => {
                   onChange={(e) => setNewRequest({ ...newRequest, wasteType: e.target.value as PickupRequest['wasteType'] })}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
-                  <option value="general">General Waste</option>
-                  <option value="recyclable">Recyclable</option>
-                  <option value="organic">Organic</option>
-                  <option value="hazardous">Hazardous</option>
                   <option value="bulk">Bulk Items</option>
+                  <option value="hazardous">Hazardous Waste</option>
+                  <option value="electronic">Electronic Waste</option>
+                  <option value="construction">Construction Waste</option>
+                  <option value="organic">Organic Waste</option>
+                  <option value="recyclable">Recyclable</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
 

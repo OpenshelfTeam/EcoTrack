@@ -3,7 +3,6 @@ import mongoose from 'mongoose';
 const pickupRequestSchema = new mongoose.Schema({
   requestId: {
     type: String,
-    required: true,
     unique: true,
     uppercase: true
   },
