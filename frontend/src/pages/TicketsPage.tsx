@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   AlertCircle, Plus, Search, Filter, MessageSquare, Clock,
   CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send, Image
 } from 'lucide-react';
+import { ticketService, type Ticket as TicketType } from '../services/ticket.service';
 
 interface Ticket {
   id: string;
@@ -28,13 +30,14 @@ interface Comment {
 }
 
 export const TicketsPage = () => {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [commentText, setCommentText] = useState('');
 
