@@ -30,7 +30,7 @@ export const getAllFeedback = async (req, res) => {
     const [feedback, total] = await Promise.all([
       Feedback.find(filter)
         .populate('user', 'firstName lastName email phone')
-        .populate('respondedBy', 'firstName lastName role')
+        .populate('response.respondedBy', 'firstName lastName role')
         .sort(sortBy)
         .skip(skip)
         .limit(Number(limit)),
@@ -60,7 +60,7 @@ export const getFeedback = async (req, res) => {
   try {
     const feedback = await Feedback.findById(req.params.id)
       .populate('user', 'firstName lastName email phone')
-      .populate('respondedBy', 'firstName lastName role');
+      .populate('response.respondedBy', 'firstName lastName role');
 
     if (!feedback) {
       return res.status(404).json({
@@ -103,7 +103,7 @@ export const createFeedback = async (req, res) => {
       message,
       rating,
       attachments,
-      status: 'pending'
+      status: 'submitted'
     });
 
     await feedback.populate('user', 'firstName lastName email phone');
@@ -287,9 +287,9 @@ export const getFeedbackStats = async (req, res) => {
       recentFeedback
     ] = await Promise.all([
       Feedback.countDocuments(),
-      Feedback.countDocuments({ status: 'pending' }),
-      Feedback.countDocuments({ status: 'responded' }),
-      Feedback.countDocuments({ status: 'resolved' }),
+      Feedback.countDocuments({ status: 'submitted' }),
+      Feedback.countDocuments({ status: 'under-review' }),
+      Feedback.countDocuments({ status: 'addressed' }),
       Feedback.aggregate([
         { $group: { _id: '$category', count: { $sum: 1 } } }
       ]),

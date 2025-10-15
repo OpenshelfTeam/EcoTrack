@@ -18,6 +18,14 @@ export const RoutesPage = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [newRoute, setNewRoute] = useState({
+    routeName: '',
+    area: '',
+    scheduledDate: '',
+    scheduledTime: { start: '', end: '' },
+    priority: 'medium',
+    notes: ''
+  });
 
   // Fetch routes with filters
   const { data: routesData, isLoading, error } = useQuery({
@@ -139,17 +147,8 @@ export const RoutesPage = () => {
     );
   }
 
-  const routes = routesData?.data || [];
+  const routes = routesData?.data?.routes || [];
   const stats = statsData?.data;
-
-  const [newRoute, setNewRoute] = useState({
-    routeName: '',
-    area: '',
-    scheduledDate: '',
-    scheduledTime: { start: '', end: '' },
-    priority: 'medium',
-    notes: ''
-  });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -374,7 +373,7 @@ export const RoutesPage = () => {
         {/* Routes List */}
         {viewMode === 'list' ? (
           <div className="space-y-4">
-            {routes.map((route) => (
+            {routes.map((route: any) => (
               <div
                 key={route._id}
                 className="bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden"
@@ -477,7 +476,7 @@ export const RoutesPage = () => {
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDeleteRoute(route.id)}
+                        onClick={() => handleDeleteRoute(route._id)}
                         className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium flex items-center gap-2"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -697,7 +696,7 @@ export const RoutesPage = () => {
                           </div>
                         </div>
                         <div className="flex-1">
-                          <p className="font-medium text-gray-900">{bin.location || 'Bin Location'}</p>
+                          <p className="font-medium text-gray-900">{bin.location?.address || bin.binId || 'Bin Location'}</p>
                           <div className="flex items-center gap-3 mt-1 text-xs text-gray-600">
                             <span>Type: {bin.type || 'N/A'}</span>
                             <span>Status: {bin.status || 'N/A'}</span>

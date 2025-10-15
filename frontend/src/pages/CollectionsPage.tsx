@@ -17,6 +17,14 @@ export const CollectionsPage = () => {
   const [selectedCollection, setSelectedCollection] = useState<CollectionRecord | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterArea, setFilterArea] = useState<string>('all');
+  const [newCollection, setNewCollection] = useState({
+    date: '',
+    time: '',
+    area: '',
+    routeName: '',
+    wasteType: 'General Waste',
+    status: 'scheduled'
+  });
 
   // Fetch collections with filters
   const { data: collectionsData, isLoading, error } = useQuery({
@@ -83,17 +91,8 @@ export const CollectionsPage = () => {
     );
   }
 
-  const collections = collectionsData?.data || [];
+  const collections = collectionsData?.data?.records || [];
   const stats = statsData?.data;
-
-  const [newCollection, setNewCollection] = useState({
-    date: '',
-    time: '',
-    area: '',
-    routeName: '',
-    wasteType: 'General Waste',
-    status: 'scheduled'
-  });
 
   // Calendar helpers
   const getDaysInMonth = (date: Date) => {
@@ -186,17 +185,17 @@ export const CollectionsPage = () => {
             {day}
           </div>
           <div className="space-y-1">
-            {dayCollections.slice(0, 3).map((collection) => (
+            {dayCollections.slice(0, 3).map((collection: any) => (
               <div
-                key={collection.id}
+                key={collection._id}
                 onClick={() => {
                   setSelectedCollection(collection);
                   setShowDetailsModal(true);
                 }}
                 className={`text-xs p-1 rounded border cursor-pointer hover:shadow-sm ${getStatusColor(collection.status)}`}
               >
-                <div className="font-medium truncate">{collection.time}</div>
-                <div className="truncate">{collection.area}</div>
+                <div className="font-medium truncate">{new Date(collection.collectionDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                <div className="truncate">{collection.location?.area || collection.route?.area || 'N/A'}</div>
               </div>
             ))}
             {dayCollections.length > 3 && (

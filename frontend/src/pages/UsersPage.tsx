@@ -130,10 +130,11 @@ export const UsersPage = () => {
   // Statistics
   const stats = {
     total: users.length,
-    active: users.filter(u => u.status === 'active').length,
-    admins: users.filter(u => u.role === 'admin').length,
-    collectors: users.filter(u => u.role === 'collector').length,
-    residents: users.filter(u => u.role === 'resident').length
+    active: users.filter((u: UserType) => u.isActive).length,
+    inactive: users.filter((u: UserType) => !u.isActive).length,
+    admins: users.filter((u: UserType) => u.role === 'admin').length,
+    collectors: users.filter((u: UserType) => u.role === 'collector').length,
+    residents: users.filter((u: UserType) => u.role === 'resident').length
   };
 
   const getRoleColor = (role: string) => {
@@ -186,12 +187,17 @@ export const UsersPage = () => {
   const openAddModal = () => {
     setModalMode('add');
     setFormData({
-      name: '',
+      firstName: '',
+      lastName: '',
       email: '',
       phone: '',
       role: 'resident',
-      status: 'active',
-      address: ''
+      address: {
+        street: '',
+        city: '',
+        state: '',
+        zipCode: ''
+      }
     });
     setShowUserModal(true);
   };
@@ -200,11 +206,11 @@ export const UsersPage = () => {
     setModalMode('edit');
     setSelectedUser(user);
     setFormData({
-      name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       phone: user.phone,
       role: user.role,
-      status: user.status,
       address: user.address
     });
     setShowUserModal(true);
@@ -218,32 +224,31 @@ export const UsersPage = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (modalMode === 'add') {
-      const newUser: UserType = {
-        id: `USR${String(users.length + 1).padStart(3, '0')}`,
-        ...formData,
-        joinDate: new Date().toISOString().split('T')[0],
-        lastActive: new Date().toISOString()
-      };
-      setUsers([...users, newUser]);
+      // Create new user - implement with mutation when available
+      alert('Add user functionality requires backend implementation');
     } else if (selectedUser) {
-      setUsers(users.map(u => u.id === selectedUser.id ? { ...u, ...formData } : u));
+      updateMutation.mutate({ id: selectedUser._id, data: formData });
     }
     setShowUserModal(false);
   };
 
   const handleDelete = () => {
     if (selectedUser) {
-      setUsers(users.filter(u => u.id !== selectedUser.id));
+      deleteMutation.mutate(selectedUser._id);
       setShowDeleteModal(false);
     }
   };
 
-  const toggleUserStatus = (userId: string) => {
-    setUsers(users.map(u => 
-      u.id === userId 
-        ? { ...u, status: u.status === 'active' ? 'inactive' : 'active' as 'active' | 'inactive' }
-        : u
-    ));
+  const toggleUserStatus = (user: UserType) => {
+    if (user.isActive) {
+      deactivateMutation.mutate(user._id);
+    } else {
+      activateMutation.mutate(user._id);
+    }
+  };
+
+  const handleRoleChange = (userId: string, newRole: string) => {
+    updateRoleMutation.mutate({ id: userId, role: newRole });
   };
 
   return (
@@ -402,16 +407,16 @@ export const UsersPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                {filteredUsers.map((user: UserType) => (
+                  <tr key={user._id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full flex items-center justify-center text-white font-semibold">
-                          {user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          {user.firstName[0]}{user.lastName[0]}
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">{user.name}</p>
-                          <p className="text-sm text-gray-500">{user.id}</p>
+                          <p className="font-medium text-gray-900">{user.firstName} {user.lastName}</p>
+                          <p className="text-sm text-gray-500">{user._id.slice(-6)}</p>
                         </div>
                       </div>
                     </td>
@@ -434,29 +439,29 @@ export const UsersPage = () => {
                       </span>
                     </td>
                     <td className="py-4 px-6">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(user.status)}`}>
-                        {user.status === 'active' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(user.isActive ? 'active' : 'inactive')}`}>
+                        {user.isActive ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                        {user.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2 text-sm text-gray-600">
                         <Clock className="w-4 h-4" />
-                        {formatLastActive(user.lastActive)}
+                        {new Date(user.updatedAt).toLocaleDateString()}
                       </div>
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => toggleUserStatus(user.id)}
+                          onClick={() => toggleUserStatus(user)}
                           className={`p-2 rounded-lg transition-colors ${
-                            user.status === 'active'
+                            user.isActive
                               ? 'text-red-600 hover:bg-red-50'
                               : 'text-emerald-600 hover:bg-emerald-50'
                           }`}
-                          title={user.status === 'active' ? 'Deactivate' : 'Activate'}
+                          title={user.isActive ? 'Deactivate' : 'Activate'}
                         >
-                          {user.status === 'active' ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
+                          {user.isActive ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
                         </button>
                         <button
                           onClick={() => openEditModal(user)}
@@ -507,15 +512,29 @@ export const UsersPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name <span className="text-red-500">*</span>
+                    First Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="John Doe"
+                    placeholder="John"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Doe"
                   />
                 </div>
 
@@ -562,35 +581,64 @@ export const UsersPage = () => {
                     <option value="admin">Admin</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Street Address <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.address.street}
+                    onChange={(e) => setFormData({ ...formData, address: { ...formData.address, street: e.target.value } })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="123 Main St"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status <span className="text-red-500">*</span>
+                    City <span className="text-red-500">*</span>
                   </label>
-                  <select
+                  <input
+                    type="text"
                     required
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+                    value={formData.address.city}
+                    onChange={(e) => setFormData({ ...formData, address: { ...formData.address, city: e.target.value } })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
+                    placeholder="Colombo"
+                  />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Address <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  required
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-none"
-                  placeholder="123 Main St, City, State ZIP"
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    State <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.address.state}
+                    onChange={(e) => setFormData({ ...formData, address: { ...formData.address, state: e.target.value } })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Western Province"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Zip Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.address.zipCode}
+                    onChange={(e) => setFormData({ ...formData, address: { ...formData.address, zipCode: e.target.value } })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="10100"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -627,7 +675,7 @@ export const UsersPage = () => {
               </div>
             </div>
             <p className="text-gray-700 mb-6">
-              Are you sure you want to delete <strong>{selectedUser.name}</strong>? 
+              Are you sure you want to delete <strong>{selectedUser.firstName} {selectedUser.lastName}</strong>? 
               All data associated with this user will be permanently removed.
             </p>
             <div className="flex gap-3">

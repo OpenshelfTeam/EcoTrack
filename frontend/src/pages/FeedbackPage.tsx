@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   MessageSquare, Star, ThumbsUp, ThumbsDown, Search, Filter,
-  X, Send, Calendar, User, CheckCircle, Clock, Eye, Loader2, AlertCircle
+  X, Send, Calendar, User, CheckCircle, Clock, Eye, Loader2, AlertCircle, Plus
 } from 'lucide-react';
 import { feedbackService, type Feedback } from '../services/feedback.service';
 
@@ -16,8 +16,15 @@ export const FeedbackPage = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showRespondModal, setShowRespondModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
   const [responseText, setResponseText] = useState('');
+  const [newFeedback, setNewFeedback] = useState({
+    category: 'collection-service',
+    subject: '',
+    message: '',
+    rating: 5
+  });
 
   // Fetch feedback with filters
   const { data: feedbackData, isLoading, error } = useQuery({
@@ -30,10 +37,12 @@ export const FeedbackPage = () => {
     })
   });
 
-  // Fetch stats
+  // Fetch stats (non-blocking - allow page to load even if stats fail)
   const { data: statsData } = useQuery({
     queryKey: ['feedback-stats'],
-    queryFn: () => feedbackService.getFeedbackStats()
+    queryFn: feedbackService.getFeedbackStats,
+    retry: false,
+    staleTime: 60000 // Cache for 1 minute
   });
 
   // Respond to feedback mutation
@@ -63,6 +72,21 @@ export const FeedbackPage = () => {
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update status');
+    }
+  });
+
+  // Create feedback mutation
+  const createMutation = useMutation({
+    mutationFn: feedbackService.createFeedback,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedback'] });
+      queryClient.invalidateQueries({ queryKey: ['feedback-stats'] });
+      setShowCreateModal(false);
+      setNewFeedback({ category: 'collection-service', subject: '', message: '', rating: 5 });
+      alert('Feedback submitted successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to submit feedback');
     }
   });
 
@@ -109,10 +133,10 @@ export const FeedbackPage = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'new': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'in_review': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-      case 'responded': return 'text-purple-600 bg-purple-50 border-purple-200';
-      case 'resolved': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
+      case 'submitted': return 'text-blue-600 bg-blue-50 border-blue-200';
+      case 'under-review': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'acknowledged': return 'text-purple-600 bg-purple-50 border-purple-200';
+      case 'addressed': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
       case 'closed': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
@@ -120,10 +144,10 @@ export const FeedbackPage = () => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'new': return <MessageSquare className="w-4 h-4" />;
-      case 'in_review': return <Clock className="w-4 h-4" />;
-      case 'responded': return <Send className="w-4 h-4" />;
-      case 'resolved': return <CheckCircle className="w-4 h-4" />;
+      case 'submitted': return <MessageSquare className="w-4 h-4" />;
+      case 'under-review': return <Clock className="w-4 h-4" />;
+      case 'acknowledged': return <Send className="w-4 h-4" />;
+      case 'addressed': return <CheckCircle className="w-4 h-4" />;
       case 'closed': return <X className="w-4 h-4" />;
       default: return <MessageSquare className="w-4 h-4" />;
     }
@@ -131,11 +155,13 @@ export const FeedbackPage = () => {
 
   const getTypeColor = (category: string) => {
     switch (category) {
-      case 'service': return 'bg-blue-100 text-blue-700';
-      case 'collection': return 'bg-purple-100 text-purple-700';
-      case 'bin': return 'bg-green-100 text-green-700';
-      case 'payment': return 'bg-yellow-100 text-yellow-700';
-      case 'app': return 'bg-indigo-100 text-indigo-700';
+      case 'collection-service': return 'bg-blue-100 text-blue-700';
+      case 'bin-quality': return 'bg-green-100 text-green-700';
+      case 'collector-behavior': return 'bg-purple-100 text-purple-700';
+      case 'payment-system': return 'bg-yellow-100 text-yellow-700';
+      case 'app-experience': return 'bg-indigo-100 text-indigo-700';
+      case 'suggestion': return 'bg-teal-100 text-teal-700';
+      case 'complaint': return 'bg-red-100 text-red-700';
       case 'other': return 'bg-gray-100 text-gray-700';
       default: return 'bg-gray-100 text-gray-700';
     }
@@ -143,11 +169,13 @@ export const FeedbackPage = () => {
 
   const getTypeIcon = (category: string) => {
     switch (category) {
-      case 'service': return <MessageSquare className="w-4 h-4" />;
-      case 'collection': return <ThumbsDown className="w-4 h-4" />;
-      case 'bin': return <MessageSquare className="w-4 h-4" />;
-      case 'payment': return <ThumbsUp className="w-4 h-4" />;
-      case 'app': return <MessageSquare className="w-4 h-4" />;
+      case 'collection-service': return <MessageSquare className="w-4 h-4" />;
+      case 'bin-quality': return <MessageSquare className="w-4 h-4" />;
+      case 'collector-behavior': return <ThumbsDown className="w-4 h-4" />;
+      case 'payment-system': return <ThumbsUp className="w-4 h-4" />;
+      case 'app-experience': return <MessageSquare className="w-4 h-4" />;
+      case 'suggestion': return <ThumbsUp className="w-4 h-4" />;
+      case 'complaint': return <ThumbsDown className="w-4 h-4" />;
       case 'other': return <MessageSquare className="w-4 h-4" />;
       default: return <MessageSquare className="w-4 h-4" />;
     }
@@ -176,7 +204,7 @@ export const FeedbackPage = () => {
   };
 
   const handleMarkResolved = (feedback: Feedback) => {
-    updateStatusMutation.mutate({ id: feedback._id, status: 'resolved' });
+    updateStatusMutation.mutate({ id: feedback._id, status: 'addressed' });
   };
 
   const handleDeleteFeedback = (id: string) => {
@@ -199,6 +227,13 @@ export const FeedbackPage = () => {
             </h1>
             <p className="text-gray-600 mt-1">View and respond to customer feedback</p>
           </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center gap-2 shadow-md"
+          >
+            <Plus className="w-5 h-5" />
+            Create Feedback
+          </button>
         </div>
 
         {/* Statistics Cards */}
@@ -207,7 +242,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Total</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.total || 0}</p>
               </div>
               <div className="p-3 bg-gray-100 rounded-lg">
                 <MessageSquare className="w-6 h-6 text-gray-600" />
@@ -219,7 +254,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">New</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{stats.new}</p>
+                <p className="text-2xl font-bold text-blue-600 mt-1">{stats?.new || 0}</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
                 <MessageSquare className="w-6 h-6 text-blue-600" />
@@ -231,7 +266,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">In Review</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">{stats.inReview}</p>
+                <p className="text-2xl font-bold text-yellow-600 mt-1">{stats?.inReview || 0}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Clock className="w-6 h-6 text-yellow-600" />
@@ -243,7 +278,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Resolved</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.resolved}</p>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{stats?.resolved || 0}</p>
               </div>
               <div className="p-3 bg-emerald-100 rounded-lg">
                 <CheckCircle className="w-6 h-6 text-emerald-600" />
@@ -255,7 +290,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Avg Rating</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stats.avgRating}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.avgRating?.toFixed(1) || '0.0'}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Star className="w-6 h-6 text-yellow-600" />
@@ -267,7 +302,7 @@ export const FeedbackPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Satisfaction</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.satisfaction}%</p>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{stats?.satisfaction || 0}%</p>
               </div>
               <div className="p-3 bg-emerald-100 rounded-lg">
                 <ThumbsUp className="w-6 h-6 text-emerald-600" />
@@ -310,10 +345,10 @@ export const FeedbackPage = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
                   <option value="all">All Status</option>
-                  <option value="new">New</option>
-                  <option value="in_review">In Review</option>
-                  <option value="responded">Responded</option>
-                  <option value="resolved">Resolved</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="under-review">Under Review</option>
+                  <option value="acknowledged">Acknowledged</option>
+                  <option value="addressed">Addressed</option>
                   <option value="closed">Closed</option>
                 </select>
               </div>
@@ -325,10 +360,14 @@ export const FeedbackPage = () => {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
                   <option value="all">All Types</option>
-                  <option value="complaint">Complaints</option>
-                  <option value="suggestion">Suggestions</option>
-                  <option value="compliment">Compliments</option>
-                  <option value="general">General</option>
+                  <option value="collection-service">Collection Service</option>
+                  <option value="bin-quality">Bin Quality</option>
+                  <option value="collector-behavior">Collector Behavior</option>
+                  <option value="payment-system">Payment System</option>
+                  <option value="app-experience">App Experience</option>
+                  <option value="suggestion">Suggestion</option>
+                  <option value="complaint">Complaint</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
               <div>
@@ -583,6 +622,147 @@ export const FeedbackPage = () => {
               >
                 <Send className="w-4 h-4" />
                 Send Response
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Feedback Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex items-center justify-between rounded-t-2xl sticky top-0">
+              <h2 className="text-xl font-bold text-white">Create New Feedback</h2>
+              <button 
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setNewFeedback({ category: 'collection-service', subject: '', message: '', rating: 5 });
+                }}
+                className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-1 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newFeedback.category}
+                  onChange={(e) => setNewFeedback({ ...newFeedback, category: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                >
+                  <option value="collection-service">Collection Service</option>
+                  <option value="bin-quality">Bin Quality</option>
+                  <option value="collector-behavior">Collector Behavior</option>
+                  <option value="payment-system">Payment System</option>
+                  <option value="app-experience">App Experience</option>
+                  <option value="suggestion">Suggestion</option>
+                  <option value="complaint">Complaint</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Subject <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newFeedback.subject}
+                  onChange={(e) => setNewFeedback({ ...newFeedback, subject: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                  placeholder="Brief description of your feedback"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Message <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={newFeedback.message}
+                  onChange={(e) => setNewFeedback({ ...newFeedback, message: e.target.value })}
+                  rows={5}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none"
+                  placeholder="Provide detailed feedback..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Rating <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setNewFeedback({ ...newFeedback, rating: star })}
+                      className="focus:outline-none hover:scale-110 transition-transform"
+                      type="button"
+                    >
+                      <Star
+                        className={`w-8 h-8 transition-colors ${
+                          star <= newFeedback.rating 
+                            ? 'fill-yellow-400 text-yellow-400' 
+                            : 'text-gray-300 hover:text-gray-400'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                  <span className="ml-2 text-sm text-gray-600 self-center">
+                    {newFeedback.rating}/5
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> Your feedback helps us improve our services. 
+                  We review all submissions and will respond as soon as possible.
+                </p>
+              </div>
+            </div>
+            
+            <div className="px-6 py-4 bg-gray-50 flex gap-3 rounded-b-2xl border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setNewFeedback({ category: 'collection-service', subject: '', message: '', rating: 5 });
+                }}
+                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!newFeedback.subject.trim()) {
+                    alert('Please enter a subject');
+                    return;
+                  }
+                  if (!newFeedback.message.trim()) {
+                    alert('Please enter a message');
+                    return;
+                  }
+                  createMutation.mutate(newFeedback);
+                }}
+                disabled={createMutation.isPending}
+                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-2"
+              >
+                {createMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Submit Feedback
+                  </>
+                )}
               </button>
             </div>
           </div>

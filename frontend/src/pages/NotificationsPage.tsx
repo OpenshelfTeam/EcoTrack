@@ -15,6 +15,13 @@ export const NotificationsPage = () => {
 
   const queryClient = useQueryClient();
 
+  // Initialize preferences state BEFORE any conditional returns
+  const [preferences, setPreferences] = useState({ 
+    email: true, sms: true, push: true, 'in-app': true, 
+    collections: true, payments: true, tickets: true, 
+    system: true, pickups: true, feedback: false 
+  });
+
   // Queries
   const { data: notificationsData, isLoading, error } = useQuery({
     queryKey: ['notifications', filterType, filterRead],
@@ -101,7 +108,6 @@ export const NotificationsPage = () => {
   }
 
   const notifications = notificationsData?.data || [];
-  const [preferences, setPreferences] = useState(preferencesData?.data || { email: true, sms: true, push: true, 'in-app': true, collections: true, payments: true, tickets: true, system: true, pickups: true, feedback: false });
 
   const handleMarkAsRead = (id: string) => {
     markAsReadMutation.mutate(id);
@@ -134,13 +140,13 @@ export const NotificationsPage = () => {
   // Statistics
   const stats = {
     total: notifications.length,
-    unread: notifications.filter(n => !n.read).length,
-    today: notifications.filter(n => {
+    unread: notifications.filter((n: any) => !n.read).length,
+    today: notifications.filter((n: any) => {
       const notifDate = new Date(n.timestamp);
       const today = new Date();
       return notifDate.toDateString() === today.toDateString();
     }).length,
-    high: notifications.filter(n => n.priority === 'high' && !n.read).length
+    high: notifications.filter((n: any) => n.priority === 'high' && !n.read).length
   };
 
   const getTypeIcon = (type: string) => {

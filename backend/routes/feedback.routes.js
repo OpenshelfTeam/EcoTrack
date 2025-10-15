@@ -15,8 +15,8 @@ const router = express.Router();
 
 router.use(protect);
 
-// Stats route (must be before /:id)
-router.get('/stats', authorize('authority', 'admin'), getFeedbackStats);
+// Stats route (must be before /:id) - accessible to all authenticated users
+router.get('/stats', getFeedbackStats);
 
 // Main routes
 router.route('/')
