@@ -84,15 +84,15 @@ export const BinsPage = () => {
 
   const bins: Bin[] = binsData?.data?.map((bin: any) => ({
     id: bin._id,
-    location: bin.location.name || `${bin.location.type}`,
-    address: bin.location.address,
+    location: bin.location?.address || 'Unknown Location',
+    address: bin.location?.address || '',
     capacity: bin.capacity,
-    currentLevel: bin.fillLevel,
+    currentLevel: bin.currentLevel,
     status: bin.status,
-    type: bin.wasteType,
-    lastCollection: bin.lastCollection ? new Date(bin.lastCollection).toISOString().split('T')[0] : 'Never',
+    type: bin.binType,
+    lastCollection: bin.lastEmptied ? new Date(bin.lastEmptied).toISOString().split('T')[0] : 'Never',
     nextCollection: bin.nextScheduledCollection ? new Date(bin.nextScheduledCollection).toISOString().split('T')[0] : 'Not scheduled',
-    coordinates: bin.location.coordinates ? { lat: bin.location.coordinates[1], lng: bin.location.coordinates[0] } : undefined
+    coordinates: bin.location?.coordinates ? { lat: bin.location.coordinates[1], lng: bin.location.coordinates[0] } : undefined
   })) || [];
 
   const [newBin, setNewBin] = useState<Partial<Bin>>({
@@ -156,17 +156,15 @@ export const BinsPage = () => {
   const handleAddBin = () => {
     createBinMutation.mutate({
       location: {
-        type: 'Residential',
-        name: newBin.location,
+        type: 'Point',
+        coordinates: [79.8612, 6.9271], // Default Colombo coordinates
         address: newBin.address,
-        coordinates: [0, 0], // You can add actual coordinates later
       },
       capacity: newBin.capacity,
-      wasteType: newBin.type,
-      fillLevel: newBin.currentLevel,
+      binType: newBin.type,
+      currentLevel: newBin.currentLevel,
       status: newBin.status,
-      lastCollection: newBin.lastCollection,
-      nextScheduledCollection: newBin.nextCollection,
+      lastEmptied: newBin.lastCollection ? new Date(newBin.lastCollection) : null,
     });
   };
 
@@ -176,13 +174,13 @@ export const BinsPage = () => {
         id: selectedBin.id,
         data: {
           location: {
-            type: 'Residential',
-            name: selectedBin.location,
+            type: 'Point',
+            coordinates: [79.8612, 6.9271],
             address: selectedBin.address,
           },
           capacity: selectedBin.capacity,
-          wasteType: selectedBin.type,
-          fillLevel: selectedBin.currentLevel,
+          binType: selectedBin.type,
+          currentLevel: selectedBin.currentLevel,
           status: selectedBin.status,
         },
       });
