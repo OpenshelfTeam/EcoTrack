@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Trash2, Plus, Search, Filter, MapPin, Edit, Trash,
   CheckCircle, AlertCircle, Clock, Map, List, X
 } from 'lucide-react';
+import { binService } from '../services/bin.service';
 
 interface Bin {
   id: string;
@@ -30,81 +32,68 @@ export const BinsPage = () => {
   const [selectedBin, setSelectedBin] = useState<Bin | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Mock data - Replace with API call
-  const [bins, setBins] = useState<Bin[]>([
-    {
-      id: '1',
-      location: 'Central Park North',
-      address: '123 Park Ave, District 1',
-      capacity: 100,
-      currentLevel: 85,
-      status: 'full',
-      type: 'general',
-      lastCollection: '2024-10-12',
-      nextCollection: '2024-10-15',
-      coordinates: { lat: 40.7829, lng: -73.9654 }
+  const queryClient = useQueryClient();
+
+  // Fetch bins with filters
+  const { data: binsData, isLoading, error } = useQuery({
+    queryKey: ['bins', { search: searchTerm, status: filterStatus, type: filterType }],
+    queryFn: () => binService.getAllBins({
+      search: searchTerm,
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      wasteType: filterType !== 'all' ? filterType : undefined,
+    }),
+  });
+
+  // Create bin mutation
+  const createBinMutation = useMutation({
+    mutationFn: binService.createBin,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bins'] });
+      setShowAddModal(false);
+      resetNewBin();
     },
-    {
-      id: '2',
-      location: 'Market Street',
-      address: '456 Market St, District 2',
-      capacity: 100,
-      currentLevel: 45,
-      status: 'active',
-      type: 'recyclable',
-      lastCollection: '2024-10-13',
-      nextCollection: '2024-10-16',
-      coordinates: { lat: 40.7589, lng: -73.9851 }
+    onError: (error: any) => {
+      alert(`Error creating bin: ${error.response?.data?.message || error.message}`);
+      console.error('Bin creation error:', error.response?.data);
     },
-    {
-      id: '3',
-      location: 'Riverside Plaza',
-      address: '789 River Rd, District 1',
-      capacity: 150,
-      currentLevel: 92,
-      status: 'full',
-      type: 'organic',
-      lastCollection: '2024-10-11',
-      nextCollection: '2024-10-14',
-      coordinates: { lat: 40.7480, lng: -73.9682 }
+  });
+
+  // Update bin mutation
+  const updateBinMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => binService.updateBin(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bins'] });
+      setShowEditModal(false);
+      setSelectedBin(null);
     },
-    {
-      id: '4',
-      location: 'Tech Hub Area',
-      address: '321 Innovation Dr, District 3',
-      capacity: 100,
-      currentLevel: 30,
-      status: 'active',
-      type: 'general',
-      lastCollection: '2024-10-13',
-      nextCollection: '2024-10-17',
-      coordinates: { lat: 40.7614, lng: -73.9776 }
+    onError: (error: any) => {
+      alert(`Error updating bin: ${error.response?.data?.message || error.message}`);
     },
-    {
-      id: '5',
-      location: 'Hospital Zone',
-      address: '555 Health St, District 2',
-      capacity: 80,
-      currentLevel: 10,
-      status: 'maintenance',
-      type: 'hazardous',
-      lastCollection: '2024-10-10',
-      nextCollection: '2024-10-18',
-      coordinates: { lat: 40.7489, lng: -73.9680 }
+  });
+
+  // Delete bin mutation
+  const deleteBinMutation = useMutation({
+    mutationFn: binService.deleteBin,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bins'] });
     },
-    {
-      id: '6',
-      location: 'School District',
-      address: '888 Education Ave, District 3',
-      capacity: 120,
-      currentLevel: 60,
-      status: 'active',
-      type: 'recyclable',
-      lastCollection: '2024-10-12',
-      nextCollection: '2024-10-15',
-      coordinates: { lat: 40.7580, lng: -73.9855 }
-    }
-  ]);
+    onError: (error: any) => {
+      alert(`Error deleting bin: ${error.response?.data?.message || error.message}`);
+    },
+  });
+
+  const bins: Bin[] = binsData?.data?.map((bin: any) => ({
+    id: bin._id,
+    location: bin.location.name || `${bin.location.type}`,
+    address: bin.location.address,
+    capacity: bin.capacity,
+    currentLevel: bin.fillLevel,
+    status: bin.status,
+    type: bin.wasteType,
+    lastCollection: bin.lastCollection ? new Date(bin.lastCollection).toISOString().split('T')[0] : 'Never',
+    nextCollection: bin.nextScheduledCollection ? new Date(bin.nextScheduledCollection).toISOString().split('T')[0] : 'Not scheduled',
+    coordinates: bin.location.coordinates ? { lat: bin.location.coordinates[1], lng: bin.location.coordinates[0] } : undefined
+  })) || [];
 
   const [newBin, setNewBin] = useState<Partial<Bin>>({
     location: '',
@@ -117,14 +106,8 @@ export const BinsPage = () => {
     nextCollection: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
 
-  // Filter bins based on search and filters
-  const filteredBins = bins.filter(bin => {
-    const matchesSearch = bin.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         bin.address.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || bin.status === filterStatus;
-    const matchesType = filterType === 'all' || bin.type === filterType;
-    return matchesSearch && matchesStatus && matchesType;
-  });
+  // Bins are already filtered by the API query
+  const filteredBins = bins;
 
   // Statistics
   const stats = {
@@ -171,33 +154,44 @@ export const BinsPage = () => {
   };
 
   const handleAddBin = () => {
-    const bin: Bin = {
-      id: String(bins.length + 1),
-      location: newBin.location!,
-      address: newBin.address!,
-      capacity: newBin.capacity!,
-      currentLevel: newBin.currentLevel!,
-      status: newBin.status as Bin['status'],
-      type: newBin.type as Bin['type'],
-      lastCollection: newBin.lastCollection!,
-      nextCollection: newBin.nextCollection!
-    };
-    setBins([...bins, bin]);
-    setShowAddModal(false);
-    resetNewBin();
+    createBinMutation.mutate({
+      location: {
+        type: 'Residential',
+        name: newBin.location,
+        address: newBin.address,
+        coordinates: [0, 0], // You can add actual coordinates later
+      },
+      capacity: newBin.capacity,
+      wasteType: newBin.type,
+      fillLevel: newBin.currentLevel,
+      status: newBin.status,
+      lastCollection: newBin.lastCollection,
+      nextScheduledCollection: newBin.nextCollection,
+    });
   };
 
   const handleEditBin = () => {
     if (selectedBin) {
-      setBins(bins.map(b => b.id === selectedBin.id ? selectedBin : b));
-      setShowEditModal(false);
-      setSelectedBin(null);
+      updateBinMutation.mutate({
+        id: selectedBin.id,
+        data: {
+          location: {
+            type: 'Residential',
+            name: selectedBin.location,
+            address: selectedBin.address,
+          },
+          capacity: selectedBin.capacity,
+          wasteType: selectedBin.type,
+          fillLevel: selectedBin.currentLevel,
+          status: selectedBin.status,
+        },
+      });
     }
   };
 
   const handleDeleteBin = (id: string) => {
     if (confirm('Are you sure you want to delete this bin?')) {
-      setBins(bins.filter(b => b.id !== id));
+      deleteBinMutation.mutate(id);
     }
   };
 
@@ -237,7 +231,23 @@ export const BinsPage = () => {
           </button>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            <p className="font-medium">Error loading bins</p>
+            <p className="text-sm mt-1">{error instanceof Error ? error.message : 'An error occurred'}</p>
+          </div>
+        )}
+
         {/* Statistics Cards */}
+        {!isLoading && !error && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
@@ -299,8 +309,10 @@ export const BinsPage = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Search and Filters */}
+        {!isLoading && !error && (
         <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
           <div className="flex flex-col lg:flex-row gap-4">
             {/* Search */}
@@ -390,8 +402,11 @@ export const BinsPage = () => {
             </div>
           )}
         </div>
+        )}
 
         {/* Bins Display - Grid View */}
+        {!isLoading && !error && (
+        <>
         {viewMode === 'grid' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredBins.map((bin) => (
@@ -604,6 +619,8 @@ export const BinsPage = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No bins found</h3>
             <p className="text-gray-600">Try adjusting your search or filters</p>
           </div>
+        )}
+        </>
         )}
       </div>
 

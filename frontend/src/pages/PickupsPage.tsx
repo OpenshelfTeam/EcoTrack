@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Calendar, Plus, Search, Filter, MapPin, Clock, Trash2,
   CheckCircle, AlertCircle, XCircle, Package, X, ChevronRight
 } from 'lucide-react';
+import { pickupService } from '../services/pickup.service';
 
 interface PickupRequest {
   id: string;
@@ -28,66 +30,65 @@ export const PickupsPage = () => {
   const [selectedPickup, setSelectedPickup] = useState<PickupRequest | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  // Mock data - Replace with API call
-  const [pickupRequests, setPickupRequests] = useState<PickupRequest[]>([
-    {
-      id: '1',
-      address: '123 Main St, Apt 4B',
-      wasteType: 'general',
-      requestDate: '2024-10-10',
-      preferredDate: '2024-10-15',
-      preferredTime: 'morning',
-      status: 'scheduled',
-      collectorName: 'John Smith',
-      scheduledDate: '2024-10-15',
-      notes: 'Please ring doorbell',
-      weight: 15
+  const queryClient = useQueryClient();
+
+  // Fetch pickup requests with filters
+  const { data: pickupsData, isLoading, error } = useQuery({
+    queryKey: ['pickups', { search: searchTerm, status: filterStatus, wasteType: filterType }],
+    queryFn: () => pickupService.getAllPickups({
+      search: searchTerm,
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      wasteType: filterType !== 'all' ? filterType : undefined,
+    }),
+  });
+
+  // Create pickup mutation
+  const createPickupMutation = useMutation({
+    mutationFn: pickupService.createPickup,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pickups'] });
+      setShowRequestModal(false);
+      resetNewRequest();
     },
-    {
-      id: '2',
-      address: '123 Main St, Apt 4B',
-      wasteType: 'recyclable',
-      requestDate: '2024-10-12',
-      preferredDate: '2024-10-16',
-      preferredTime: 'afternoon',
-      status: 'pending',
-      notes: 'Multiple bags'
+    onError: (error: any) => {
+      alert(`Error creating pickup: ${error.response?.data?.message || error.message}`);
+      console.error('Pickup creation error:', error.response?.data);
     },
-    {
-      id: '3',
-      address: '123 Main St, Apt 4B',
-      wasteType: 'organic',
-      requestDate: '2024-10-08',
-      preferredDate: '2024-10-12',
-      preferredTime: 'morning',
-      status: 'completed',
-      collectorName: 'Mike Johnson',
-      scheduledDate: '2024-10-12',
-      weight: 8
+  });
+
+  // Update pickup mutation
+  const updatePickupMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => pickupService.updatePickup(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pickups'] });
+      setShowDetailsModal(false);
     },
-    {
-      id: '4',
-      address: '123 Main St, Apt 4B',
-      wasteType: 'bulk',
-      requestDate: '2024-10-05',
-      preferredDate: '2024-10-14',
-      preferredTime: 'afternoon',
-      status: 'scheduled',
-      collectorName: 'Sarah Williams',
-      scheduledDate: '2024-10-14',
-      notes: 'Large furniture items'
+  });
+
+  // Cancel pickup mutation
+  const cancelPickupMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => pickupService.cancelPickup(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pickups'] });
     },
-    {
-      id: '5',
-      address: '123 Main St, Apt 4B',
-      wasteType: 'hazardous',
-      requestDate: '2024-10-01',
-      preferredDate: '2024-10-05',
-      preferredTime: 'morning',
-      status: 'cancelled',
-      notes: 'Cancelled by user'
-    }
-  ]);
+    onError: (error: any) => {
+      alert(`Error cancelling pickup: ${error.response?.data?.message || error.message}`);
+    },
+  });
+
+  const pickupRequests: PickupRequest[] = pickupsData?.data?.map((pickup: any) => ({
+    id: pickup._id,
+    address: pickup.pickupLocation?.address || pickup.location?.address || 'Unknown Address',
+    wasteType: pickup.wasteType,
+    requestDate: pickup.createdAt ? new Date(pickup.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    preferredDate: new Date(pickup.preferredDate).toISOString().split('T')[0],
+    preferredTime: pickup.timeSlot || 'morning',
+    status: pickup.status,
+    collectorName: pickup.assignedCollector?.firstName ? `${pickup.assignedCollector.firstName} ${pickup.assignedCollector.lastName}` : undefined,
+    scheduledDate: pickup.scheduledDate ? new Date(pickup.scheduledDate).toISOString().split('T')[0] : undefined,
+    notes: pickup.notes || pickup.description,
+    weight: pickup.quantity?.value,
+  })) || [];
 
   const [newRequest, setNewRequest] = useState<Partial<PickupRequest>>({
     address: '123 Main St, Apt 4B',
@@ -99,14 +100,8 @@ export const PickupsPage = () => {
     notes: ''
   });
 
-  // Filter pickups
-  const filteredPickups = pickupRequests.filter(pickup => {
-    const matchesSearch = pickup.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         pickup.wasteType.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || pickup.status === filterStatus;
-    const matchesType = filterType === 'all' || pickup.wasteType === filterType;
-    return matchesSearch && matchesStatus && matchesType;
-  });
+  // Pickups are already filtered by the API query
+  const filteredPickups = pickupRequests;
 
   // Statistics
   const stats = {
@@ -153,26 +148,31 @@ export const PickupsPage = () => {
   };
 
   const handleRequestPickup = () => {
-    const request: PickupRequest = {
-      id: String(pickupRequests.length + 1),
-      address: newRequest.address!,
-      wasteType: newRequest.wasteType as PickupRequest['wasteType'],
-      requestDate: newRequest.requestDate!,
-      preferredDate: newRequest.preferredDate!,
-      preferredTime: newRequest.preferredTime as PickupRequest['preferredTime'],
-      status: 'pending',
-      notes: newRequest.notes
-    };
-    setPickupRequests([request, ...pickupRequests]);
-    setShowRequestModal(false);
-    resetNewRequest();
+    createPickupMutation.mutate({
+      wasteType: newRequest.wasteType,
+      description: newRequest.notes || 'Pickup request',
+      quantity: {
+        value: 1,
+        unit: 'items'
+      },
+      pickupLocation: {
+        type: 'Point',
+        coordinates: [79.8612, 6.9271], // Default Colombo coordinates
+        address: newRequest.address || '123 Main St, Apt 4B'
+      },
+      preferredDate: newRequest.preferredDate,
+      timeSlot: newRequest.preferredTime,
+      contactPerson: {
+        name: 'User', // Will be populated from logged-in user
+        phone: '0771234567'
+      },
+      notes: newRequest.notes,
+    });
   };
 
   const handleCancelPickup = (id: string) => {
     if (confirm('Are you sure you want to cancel this pickup request?')) {
-      setPickupRequests(pickupRequests.map(p => 
-        p.id === id ? { ...p, status: 'cancelled' as const } : p
-      ));
+      cancelPickupMutation.mutate({ id, reason: 'Cancelled by user' });
     }
   };
 
@@ -211,7 +211,23 @@ export const PickupsPage = () => {
           </button>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            <p className="font-medium">Error loading pickup requests</p>
+            <p className="text-sm mt-1">{error instanceof Error ? error.message : 'An error occurred'}</p>
+          </div>
+        )}
+
         {/* Statistics Cards */}
+        {!isLoading && !error && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
@@ -273,8 +289,10 @@ export const PickupsPage = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Search and Filters */}
+        {!isLoading && !error && (
         <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
           <div className="flex flex-col lg:flex-row gap-4">
             {/* Search */}
@@ -337,8 +355,10 @@ export const PickupsPage = () => {
             </div>
           )}
         </div>
+        )}
 
         {/* Pickup Requests List */}
+        {!isLoading && !error && (
         <div className="space-y-4">
           {filteredPickups.map((pickup) => (
             <div
@@ -425,7 +445,6 @@ export const PickupsPage = () => {
               </div>
             </div>
           ))}
-        </div>
 
         {/* No Results */}
         {filteredPickups.length === 0 && (
@@ -441,6 +460,8 @@ export const PickupsPage = () => {
               Request Your First Pickup
             </button>
           </div>
+        )}
+        </div>
         )}
       </div>
 

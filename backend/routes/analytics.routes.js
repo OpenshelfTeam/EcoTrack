@@ -1,42 +1,38 @@
 import express from 'express';
 import { protect, authorize } from '../middleware/auth.middleware.js';
-import CollectionRecord from '../models/CollectionRecord.model.js';
-import Payment from '../models/Payment.model.js';
-import Ticket from '../models/Ticket.model.js';
-import SmartBin from '../models/SmartBin.model.js';
+import {
+  getDashboardStats,
+  getWasteStatistics,
+  getEfficiencyMetrics,
+  getFinancialAnalytics,
+  getAreaStatistics,
+  getEngagementStatistics,
+  exportAnalytics
+} from '../controllers/analytics.controller.js';
 
 const router = express.Router();
 
 router.use(protect);
-router.use(authorize('authority', 'operator', 'admin'));
 
-// @desc    Get dashboard analytics
-// @route   GET /api/analytics/dashboard
-// @access  Private (Authority, Operator, Admin)
-router.get('/dashboard', async (req, res) => {
-  try {
-    const totalBins = await SmartBin.countDocuments();
-    const activeBins = await SmartBin.countDocuments({ status: 'active' });
-    const totalCollections = await CollectionRecord.countDocuments();
-    const openTickets = await Ticket.countDocuments({ status: { $in: ['open', 'in-progress'] } });
-    const totalPayments = await Payment.countDocuments({ status: 'completed' });
+// Dashboard and overview
+router.get('/dashboard', authorize('operator', 'authority', 'admin'), getDashboardStats);
 
-    res.status(200).json({
-      success: true,
-      data: {
-        totalBins,
-        activeBins,
-        totalCollections,
-        openTickets,
-        totalPayments
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
+// Waste analytics
+router.get('/waste', getWasteStatistics);
+
+// Efficiency metrics
+router.get('/efficiency', authorize('operator', 'authority', 'admin'), getEfficiencyMetrics);
+
+// Financial analytics
+router.get('/financial', authorize('authority', 'admin'), getFinancialAnalytics);
+
+// Area statistics
+router.get('/areas', getAreaStatistics);
+
+// User engagement
+router.get('/engagement', authorize('operator', 'authority', 'admin'), getEngagementStatistics);
+
+// Export data
+router.get('/export', authorize('authority', 'admin'), exportAnalytics);
 
 export default router;

@@ -13,6 +13,8 @@ import paymentRoutes from './routes/payment.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
+import pickupRoutes from './routes/pickup.routes.js';
+import routeRoutes from './routes/route.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -41,6 +43,8 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/pickups', pickupRoutes);
+app.use('/api/routes', routeRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {
