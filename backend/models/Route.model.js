@@ -57,10 +57,23 @@ const routeSchema = new mongoose.Schema({
     type: Number, // in kilometers
     default: 0
   },
+  optimized: {
+    type: Boolean,
+    default: false
+  },
+  estimatedDuration: {
+    type: Number, // in minutes
+    default: 0
+  },
   notes: String
 }, {
   timestamps: true
 });
+
+// Index for common queries
+routeSchema.index({ assignedCollector: 1, scheduledDate: -1 });
+routeSchema.index({ status: 1, scheduledDate: -1 });
+routeSchema.index({ area: 1 });
 
 const Route = mongoose.model('Route', routeSchema);
 
