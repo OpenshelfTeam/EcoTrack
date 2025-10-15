@@ -1,13 +1,35 @@
 import express from 'express';
-import { getFeedback, createFeedback } from '../controllers/feedback.controller.js';
-import { protect } from '../middleware/auth.middleware.js';
+import {
+  getAllFeedback,
+  getFeedback,
+  createFeedback,
+  updateFeedback,
+  deleteFeedback,
+  respondToFeedback,
+  updateFeedbackStatus,
+  getFeedbackStats
+} from '../controllers/feedback.controller.js';
+import { protect, authorize } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 router.use(protect);
 
+// Stats route (must be before /:id) - accessible to all authenticated users
+router.get('/stats', getFeedbackStats);
+
+// Main routes
 router.route('/')
-  .get(getFeedback)
+  .get(getAllFeedback)
   .post(createFeedback);
+
+router.route('/:id')
+  .get(getFeedback)
+  .put(updateFeedback)
+  .delete(deleteFeedback);
+
+// Response and status routes
+router.post('/:id/respond', authorize('authority', 'admin'), respondToFeedback);
+router.patch('/:id/status', authorize('authority', 'admin'), updateFeedbackStatus);
 
 export default router;

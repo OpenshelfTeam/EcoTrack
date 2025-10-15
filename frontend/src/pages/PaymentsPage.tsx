@@ -1,164 +1,133 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   CreditCard, DollarSign, Calendar, Download, Search, Filter,
-  CheckCircle, Clock, XCircle, Receipt, TrendingUp, FileText,
-  Plus, ChevronRight, X, Eye, Printer
+  CheckCircle, Clock, XCircle, Receipt, TrendingUp,
+  X, Eye, Printer, AlertCircle
 } from 'lucide-react';
-
-interface Payment {
-  id: string;
-  invoiceNumber: string;
-  description: string;
-  amount: number;
-  status: 'paid' | 'pending' | 'overdue' | 'cancelled';
-  dueDate: string;
-  paidDate?: string;
-  paymentMethod?: 'credit_card' | 'debit_card' | 'bank_transfer' | 'cash' | 'mobile_payment';
-  category: 'monthly_service' | 'extra_pickup' | 'bin_rental' | 'penalty' | 'bulk_waste';
-  billingPeriod?: string;
-}
-
-interface PaymentMethod {
-  id: string;
-  type: 'credit_card' | 'debit_card' | 'bank_account';
-  last4: string;
-  expiryDate?: string;
-  isDefault: boolean;
-  cardBrand?: string;
-}
+import { paymentService, type Payment } from '../services/payment.service';
 
 export const PaymentsPage = () => {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
 
-  // Mock payment history data
-  const [payments] = useState<Payment[]>([
-    {
-      id: 'PAY001',
-      invoiceNumber: 'INV-2024-001',
-      description: 'Monthly Waste Collection Service',
-      amount: 49.99,
-      status: 'paid',
-      dueDate: '2024-10-01',
-      paidDate: '2024-09-28',
-      paymentMethod: 'credit_card',
-      category: 'monthly_service',
-      billingPeriod: 'October 2024'
-    },
-    {
-      id: 'PAY002',
-      invoiceNumber: 'INV-2024-002',
-      description: 'Extra Pickup Request',
-      amount: 15.00,
-      status: 'paid',
-      dueDate: '2024-10-05',
-      paidDate: '2024-10-05',
-      paymentMethod: 'mobile_payment',
-      category: 'extra_pickup'
-    },
-    {
-      id: 'PAY003',
-      invoiceNumber: 'INV-2024-003',
-      description: 'Monthly Waste Collection Service',
-      amount: 49.99,
-      status: 'pending',
-      dueDate: '2024-11-01',
-      category: 'monthly_service',
-      billingPeriod: 'November 2024'
-    },
-    {
-      id: 'PAY004',
-      invoiceNumber: 'INV-2024-004',
-      description: 'Bulk Waste Disposal',
-      amount: 35.00,
-      status: 'overdue',
-      dueDate: '2024-10-10',
-      category: 'bulk_waste'
-    },
-    {
-      id: 'PAY005',
-      invoiceNumber: 'INV-2024-005',
-      description: 'Additional Recycling Bin Rental',
-      amount: 12.00,
-      status: 'paid',
-      dueDate: '2024-09-15',
-      paidDate: '2024-09-14',
-      paymentMethod: 'bank_transfer',
-      category: 'bin_rental',
-      billingPeriod: 'September 2024'
-    },
-    {
-      id: 'PAY006',
-      invoiceNumber: 'INV-2024-006',
-      description: 'Late Payment Penalty',
-      amount: 5.00,
-      status: 'cancelled',
-      dueDate: '2024-09-20',
-      category: 'penalty'
-    }
-  ]);
-
-  // Mock payment methods
-  const [paymentMethods] = useState<PaymentMethod[]>([
-    {
-      id: 'PM001',
-      type: 'credit_card',
-      last4: '4242',
-      expiryDate: '12/26',
-      isDefault: true,
-      cardBrand: 'Visa'
-    },
-    {
-      id: 'PM002',
-      type: 'debit_card',
-      last4: '5555',
-      expiryDate: '08/25',
-      isDefault: false,
-      cardBrand: 'Mastercard'
-    },
-    {
-      id: 'PM003',
-      type: 'bank_account',
-      last4: '8901',
-      isDefault: false
-    }
-  ]);
-
-  // Filter payments
-  const filteredPayments = payments.filter(payment => {
-    const matchesSearch = payment.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || payment.status === filterStatus;
-    const matchesCategory = filterCategory === 'all' || payment.category === filterCategory;
-    return matchesSearch && matchesStatus && matchesCategory;
+  // Fetch payments with React Query
+  const { data: paymentsData, isLoading, error } = useQuery({
+    queryKey: ['payments', { 
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      search: searchTerm || undefined
+    }],
+    queryFn: () => paymentService.getAllPayments({
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      search: searchTerm
+    })
   });
 
-  // Calculate statistics
-  const stats = {
-    totalPaid: payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0),
-    pending: payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0),
-    overdue: payments.filter(p => p.status === 'overdue').reduce((sum, p) => sum + p.amount, 0),
-    thisMonth: payments.filter(p => {
-      const paymentDate = new Date(p.paidDate || p.dueDate);
-      const now = new Date();
-      return paymentDate.getMonth() === now.getMonth() && 
-             paymentDate.getFullYear() === now.getFullYear();
-    }).reduce((sum, p) => sum + p.amount, 0)
+  // Fetch payment stats
+  const { data: statsData } = useQuery({
+    queryKey: ['payment-stats'],
+    queryFn: () => paymentService.getPaymentStats()
+  });
+
+  const payments = paymentsData?.data || [];
+
+  // Mutations
+  const createPaymentMutation = useMutation({
+    mutationFn: paymentService.createPayment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-stats'] });
+      setShowPaymentModal(false);
+    },
+    onError: (error: any) => {
+      alert('Failed to create payment: ' + (error.response?.data?.message || error.message));
+    }
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status, paymentMethod }: { id: string; status: string; paymentMethod?: string }) =>
+      paymentService.updatePaymentStatus(id, status, paymentMethod),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-stats'] });
+      setShowPaymentModal(false);
+    },
+    onError: (error: any) => {
+      alert('Failed to update payment status: ' + (error.response?.data?.message || error.message));
+    }
+  });
+
+  const generateInvoiceMutation = useMutation({
+    mutationFn: paymentService.generateInvoice,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      alert('Invoice generated successfully!');
+    },
+    onError: (error: any) => {
+      alert('Failed to generate invoice: ' + (error.response?.data?.message || error.message));
+    }
+  });
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: paymentService.deletePayment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-stats'] });
+    },
+    onError: (error: any) => {
+      alert('Failed to delete payment: ' + (error.response?.data?.message || error.message));
+    }
+  });
+
+  // Loading and error states
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading payments...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-gray-900 font-medium">Failed to load payments</p>
+            <p className="text-gray-600 mt-2">Please try refreshing the page</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Calculate statistics from API data or use default values
+  const stats = statsData?.data || {
+    totalPaid: payments.filter((p: Payment) => p.status === 'paid').reduce((sum: number, p: Payment) => sum + p.amount, 0),
+    pending: payments.filter((p: Payment) => p.status === 'pending').reduce((sum: number, p: Payment) => sum + p.amount, 0),
+    failed: payments.filter((p: Payment) => p.status === 'failed').reduce((sum: number, p: Payment) => sum + p.amount, 0),
+    total: payments.reduce((sum: number, p: Payment) => sum + p.amount, 0)
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'paid': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
       case 'pending': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-      case 'overdue': return 'text-red-600 bg-red-50 border-red-200';
-      case 'cancelled': return 'text-gray-600 bg-gray-50 border-gray-200';
+      case 'failed': return 'text-red-600 bg-red-50 border-red-200';
+      case 'refunded': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
   };
@@ -167,26 +136,15 @@ export const PaymentsPage = () => {
     switch (status) {
       case 'paid': return <CheckCircle className="w-4 h-4" />;
       case 'pending': return <Clock className="w-4 h-4" />;
-      case 'overdue': return <XCircle className="w-4 h-4" />;
-      case 'cancelled': return <XCircle className="w-4 h-4" />;
+      case 'failed': return <XCircle className="w-4 h-4" />;
+      case 'refunded': return <XCircle className="w-4 h-4" />;
       default: return <Clock className="w-4 h-4" />;
-    }
-  };
-
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'monthly_service': return 'bg-blue-100 text-blue-700';
-      case 'extra_pickup': return 'bg-purple-100 text-purple-700';
-      case 'bin_rental': return 'bg-teal-100 text-teal-700';
-      case 'penalty': return 'bg-red-100 text-red-700';
-      case 'bulk_waste': return 'bg-orange-100 text-orange-700';
-      default: return 'bg-gray-100 text-gray-700';
     }
   };
 
   const handlePayNow = (payment: Payment) => {
     setSelectedPayment(payment);
-    setSelectedPaymentMethod(paymentMethods.find(pm => pm.isDefault)?.id || '');
+    setSelectedPaymentMethod('');
     setShowPaymentModal(true);
   };
 
@@ -195,14 +153,29 @@ export const PaymentsPage = () => {
     setShowInvoiceModal(true);
   };
 
-  const handleDownloadInvoice = (payment: Payment) => {
-    alert(`Downloading invoice ${payment.invoiceNumber}`);
+  const handleDownloadInvoice = async (payment: Payment) => {
+    try {
+      const blob = await paymentService.downloadInvoice(payment._id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoice-${payment.invoiceId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error: any) {
+      alert('Failed to download invoice: ' + (error.response?.data?.message || error.message));
+    }
   };
 
   const handleProcessPayment = () => {
     if (selectedPayment && selectedPaymentMethod) {
-      alert(`Payment of $${selectedPayment.amount} processed successfully!`);
-      setShowPaymentModal(false);
+      updateStatusMutation.mutate({
+        id: selectedPayment._id,
+        status: 'paid',
+        paymentMethod: selectedPaymentMethod
+      });
       setSelectedPayment(null);
       setSelectedPaymentMethod('');
     }
@@ -253,8 +226,8 @@ export const PaymentsPage = () => {
           <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">Overdue</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">${stats.overdue.toFixed(2)}</p>
+                <p className="text-gray-600 text-sm">Failed</p>
+                <p className="text-2xl font-bold text-red-600 mt-1">${stats.failed?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-red-100 rounded-lg">
                 <XCircle className="w-6 h-6 text-red-600" />
@@ -265,61 +238,13 @@ export const PaymentsPage = () => {
           <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">This Month</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">${stats.thisMonth.toFixed(2)}</p>
+                <p className="text-gray-600 text-sm">Total</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">${stats.total?.toFixed(2) || '0.00'}</p>
               </div>
               <div className="p-3 bg-gray-100 rounded-lg">
                 <TrendingUp className="w-6 h-6 text-gray-600" />
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Payment Methods Section */}
-        <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <CreditCard className="w-5 h-5" />
-              Payment Methods
-            </h2>
-            <button className="px-4 py-2 text-emerald-600 border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-medium flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add Method
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {paymentMethods.map((method) => (
-              <div
-                key={method.id}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  method.isDefault
-                    ? 'border-emerald-500 bg-emerald-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-lg ${method.isDefault ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-                      <CreditCard className={`w-5 h-5 ${method.isDefault ? 'text-emerald-600' : 'text-gray-600'}`} />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">
-                        {method.cardBrand || method.type.replace('_', ' ')}
-                      </p>
-                      <p className="text-xs text-gray-500">•••• {method.last4}</p>
-                    </div>
-                  </div>
-                  {method.isDefault && (
-                    <span className="px-2 py-1 bg-emerald-500 text-white text-xs font-medium rounded">
-                      Default
-                    </span>
-                  )}
-                </div>
-                {method.expiryDate && (
-                  <p className="text-xs text-gray-600">Expires: {method.expiryDate}</p>
-                )}
-              </div>
-            ))}
           </div>
         </div>
 
@@ -359,23 +284,8 @@ export const PaymentsPage = () => {
                   <option value="all">All Status</option>
                   <option value="paid">Paid</option>
                   <option value="pending">Pending</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="monthly_service">Monthly Service</option>
-                  <option value="extra_pickup">Extra Pickup</option>
-                  <option value="bin_rental">Bin Rental</option>
-                  <option value="penalty">Penalty</option>
-                  <option value="bulk_waste">Bulk Waste</option>
+                  <option value="failed">Failed</option>
+                  <option value="refunded">Refunded</option>
                 </select>
               </div>
             </div>
@@ -384,53 +294,48 @@ export const PaymentsPage = () => {
 
         {/* Payments List */}
         <div className="space-y-4">
-          {filteredPayments.map((payment) => (
+          {payments.map((payment: Payment) => (
             <div
-              key={payment.id}
+              key={payment._id}
               className="bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden"
             >
               <div className="p-6">
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   <div className="flex-1 space-y-3">
                     <div className="flex items-start gap-3">
-                      <div className={`p-2 rounded-lg ${payment.status === 'overdue' ? 'bg-red-100' : 'bg-emerald-100'}`}>
+                      <div className={`p-2 rounded-lg ${payment.status === 'failed' ? 'bg-red-100' : 'bg-emerald-100'}`}>
                         <Receipt className="w-5 h-5" />
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-gray-500">{payment.invoiceNumber}</span>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryColor(payment.category)}`}>
-                            {payment.category.replace('_', ' ')}
-                          </span>
+                          <span className="text-xs font-mono text-gray-500">{payment.invoiceId}</span>
                           <span className={`px-2 py-1 rounded border text-xs font-medium flex items-center gap-1 ${getStatusColor(payment.status)}`}>
                             {getStatusIcon(payment.status)}
                             {payment.status}
                           </span>
                         </div>
                         <h3 className="font-semibold text-gray-900 text-lg mb-1">{payment.description}</h3>
-                        {payment.billingPeriod && (
-                          <p className="text-sm text-gray-600">Billing Period: {payment.billingPeriod}</p>
-                        )}
+                        <p className="text-sm text-gray-600">
+                          User: {payment.user.firstName} {payment.user.lastName}
+                        </p>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-4 text-sm text-gray-600 pt-2 border-t border-gray-100">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        <span>Due: {payment.dueDate}</span>
+                        <span>Due: {new Date(payment.dueDate).toLocaleDateString()}</span>
                       </div>
-                      {payment.paidDate && (
+                      {payment.paymentDate && (
                         <div className="flex items-center gap-1 text-emerald-600">
                           <CheckCircle className="w-4 h-4" />
-                          <span>Paid: {payment.paidDate}</span>
+                          <span>Paid: {new Date(payment.paymentDate).toLocaleDateString()}</span>
                         </div>
                       )}
-                      {payment.paymentMethod && (
-                        <div className="flex items-center gap-1">
-                          <CreditCard className="w-4 h-4" />
-                          <span>{payment.paymentMethod.replace('_', ' ')}</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <CreditCard className="w-4 h-4" />
+                        <span>{payment.paymentMethod}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -453,7 +358,7 @@ export const PaymentsPage = () => {
                         <Download className="w-4 h-4" />
                         Download
                       </button>
-                      {(payment.status === 'pending' || payment.status === 'overdue') && (
+                      {payment.status === 'pending' && (
                         <button
                           onClick={() => handlePayNow(payment)}
                           className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium flex items-center gap-2"
@@ -470,7 +375,7 @@ export const PaymentsPage = () => {
           ))}
         </div>
 
-        {filteredPayments.length === 0 && (
+        {payments.length === 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
             <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No payments found</h3>
@@ -495,17 +400,18 @@ export const PaymentsPage = () => {
                 <p className="text-sm text-gray-600 mb-1">Amount Due</p>
                 <p className="text-3xl font-bold text-gray-900">${selectedPayment.amount.toFixed(2)}</p>
                 <p className="text-sm text-gray-600 mt-2">{selectedPayment.description}</p>
-                <p className="text-xs text-gray-500 mt-1">Invoice: {selectedPayment.invoiceNumber}</p>
+                <p className="text-xs text-gray-500 mt-1">Invoice: {selectedPayment.invoiceId}</p>
+                <p className="text-xs text-gray-500">Due: {new Date(selectedPayment.dueDate).toLocaleDateString()}</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">Select Payment Method</label>
                 <div className="space-y-2">
-                  {paymentMethods.map((method) => (
+                  {['cash', 'card', 'bank-transfer', 'online'].map((method) => (
                     <label
-                      key={method.id}
+                      key={method}
                       className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        selectedPaymentMethod === method.id
+                        selectedPaymentMethod === method
                           ? 'border-emerald-500 bg-emerald-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
@@ -513,27 +419,18 @@ export const PaymentsPage = () => {
                       <input
                         type="radio"
                         name="paymentMethod"
-                        value={method.id}
-                        checked={selectedPaymentMethod === method.id}
+                        value={method}
+                        checked={selectedPaymentMethod === method}
                         onChange={(e) => setSelectedPaymentMethod(e.target.value)}
                         className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
                       />
                       <div className="ml-3 flex-1">
                         <div className="flex items-center gap-2">
                           <CreditCard className="w-4 h-4 text-gray-600" />
-                          <span className="font-medium text-gray-900">
-                            {method.cardBrand || method.type.replace('_', ' ')}
+                          <span className="font-medium text-gray-900 capitalize">
+                            {method.replace('-', ' ')}
                           </span>
-                          <span className="text-sm text-gray-500">•••• {method.last4}</span>
-                          {method.isDefault && (
-                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded">
-                              Default
-                            </span>
-                          )}
                         </div>
-                        {method.expiryDate && (
-                          <p className="text-xs text-gray-500 mt-1">Expires: {method.expiryDate}</p>
-                        )}
                       </div>
                     </label>
                   ))}
@@ -587,7 +484,7 @@ export const PaymentsPage = () => {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-gray-700">INVOICE</p>
-                  <p className="text-xl font-bold text-gray-900">{selectedPayment.invoiceNumber}</p>
+                  <p className="text-xl font-bold text-gray-900">{selectedPayment.invoiceId}</p>
                   <div className="mt-2">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedPayment.status)}`}>
                       {selectedPayment.status.toUpperCase()}
@@ -600,12 +497,16 @@ export const PaymentsPage = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase">Due Date</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedPayment.dueDate}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">
+                    {new Date(selectedPayment.dueDate).toLocaleDateString()}
+                  </p>
                 </div>
-                {selectedPayment.paidDate && (
+                {selectedPayment.paymentDate && (
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase">Paid Date</p>
-                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedPayment.paidDate}</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1">
+                      {new Date(selectedPayment.paymentDate).toLocaleDateString()}
+                    </p>
                   </div>
                 )}
               </div>
@@ -614,9 +515,10 @@ export const PaymentsPage = () => {
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Bill To</p>
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="font-medium text-gray-900">John Doe</p>
-                  <p className="text-sm text-gray-600">123 Main St, Apt 4B</p>
-                  <p className="text-sm text-gray-600">Eco City, EC 12345</p>
+                  <p className="font-medium text-gray-900">
+                    {selectedPayment.user.firstName} {selectedPayment.user.lastName}
+                  </p>
+                  <p className="text-sm text-gray-600">{selectedPayment.user.email}</p>
                 </div>
               </div>
 
@@ -631,20 +533,17 @@ export const PaymentsPage = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      <tr>
-                        <td className="px-4 py-4">
-                          <p className="font-medium text-gray-900">{selectedPayment.description}</p>
-                          {selectedPayment.billingPeriod && (
-                            <p className="text-sm text-gray-600">{selectedPayment.billingPeriod}</p>
-                          )}
-                          <span className={`inline-block mt-1 px-2 py-1 rounded text-xs font-medium ${getCategoryColor(selectedPayment.category)}`}>
-                            {selectedPayment.category.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-right font-medium text-gray-900">
-                          ${selectedPayment.amount.toFixed(2)}
-                        </td>
-                      </tr>
+                      {selectedPayment.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-4">
+                            <p className="font-medium text-gray-900">{item.description}</p>
+                            <p className="text-sm text-gray-600">Quantity: {item.quantity} × ${item.unitPrice.toFixed(2)}</p>
+                          </td>
+                          <td className="px-4 py-4 text-right font-medium text-gray-900">
+                            ${item.total.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                     <tfoot className="bg-gray-50">
                       <tr>
