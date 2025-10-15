@@ -1,20 +1,11 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Bell, CheckCircle, X, Calendar, Package, AlertCircle,
-  MessageSquare, DollarSign, Settings, Trash2, Check, Filter
+  MessageSquare, DollarSign, Settings, Trash2, Check, Filter, Loader2
 } from 'lucide-react';
-
-interface Notification {
-  id: string;
-  type: 'collection' | 'payment' | 'ticket' | 'system' | 'pickup' | 'feedback';
-  title: string;
-  message: string;
-  timestamp: string;
-  read: boolean;
-  priority: 'low' | 'normal' | 'high';
-  actionUrl?: string;
-}
+import { notificationService } from '../services/notification.service';
 
 export const NotificationsPage = () => {
   const [filterType, setFilterType] = useState<string>('all');
@@ -22,100 +13,121 @@ export const NotificationsPage = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Mock notifications data
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 'NOT001',
-      type: 'collection',
-      title: 'Collection Scheduled',
-      message: 'Your waste collection is scheduled for tomorrow at 6:00 AM',
-      timestamp: '2024-10-14T08:30:00',
-      read: false,
-      priority: 'normal'
-    },
-    {
-      id: 'NOT002',
-      type: 'payment',
-      title: 'Payment Due',
-      message: 'Your monthly waste collection payment of $49.99 is due on October 20th',
-      timestamp: '2024-10-14T07:15:00',
-      read: false,
-      priority: 'high'
-    },
-    {
-      id: 'NOT003',
-      type: 'ticket',
-      title: 'Ticket Response',
-      message: 'Support team has responded to your ticket #TCK001 about missed collection',
-      timestamp: '2024-10-13T16:45:00',
-      read: true,
-      priority: 'normal'
-    },
-    {
-      id: 'NOT004',
-      type: 'system',
-      title: 'System Update',
-      message: 'EcoTrack app will undergo maintenance on October 16th from 2:00 AM to 4:00 AM',
-      timestamp: '2024-10-13T10:00:00',
-      read: true,
-      priority: 'low'
-    },
-    {
-      id: 'NOT005',
-      type: 'pickup',
-      title: 'Pickup Request Approved',
-      message: 'Your bulk waste pickup request for October 18th has been approved',
-      timestamp: '2024-10-12T14:20:00',
-      read: true,
-      priority: 'normal'
-    },
-    {
-      id: 'NOT006',
-      type: 'collection',
-      title: 'Collection Completed',
-      message: 'Your waste collection has been completed successfully',
-      timestamp: '2024-10-12T09:30:00',
-      read: true,
-      priority: 'low'
-    },
-    {
-      id: 'NOT007',
-      type: 'feedback',
-      title: 'Feedback Request',
-      message: 'How was your recent waste collection experience? Please provide feedback',
-      timestamp: '2024-10-11T18:00:00',
-      read: false,
-      priority: 'low'
-    },
-    {
-      id: 'NOT008',
-      type: 'payment',
-      title: 'Payment Received',
-      message: 'We have received your payment of $49.99. Thank you!',
-      timestamp: '2024-10-10T11:25:00',
-      read: true,
-      priority: 'normal'
-    }
-  ]);
+  const queryClient = useQueryClient();
 
-  const [preferences, setPreferences] = useState({
-    email: true,
-    push: true,
-    sms: false,
-    collections: true,
-    payments: true,
-    tickets: true,
-    system: true,
-    pickups: true,
-    feedback: false
+  // Queries
+  const { data: notificationsData, isLoading, error } = useQuery({
+    queryKey: ['notifications', filterType, filterRead],
+    queryFn: () => notificationService.getNotifications({
+      type: filterType !== 'all' ? filterType : undefined,
+      unreadOnly: filterRead === 'unread' ? true : undefined
+    })
   });
 
-  // Filter notifications
-  const filteredNotifications = notifications.filter(notification => {
+  const { data: preferencesData } = useQuery({
+    queryKey: ['notification-preferences'],
+    queryFn: notificationService.getNotificationPreferences
+  });
+
+  // Mutations
+  const markAsReadMutation = useMutation({
+    mutationFn: notificationService.markAsRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      alert('Notification marked as read!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to mark as read');
+    }
+  });
+
+  const markAllAsReadMutation = useMutation({
+    mutationFn: notificationService.markAllAsRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      alert('All notifications marked as read!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to mark all as read');
+    }
+  });
+
+  const deleteReadMutation = useMutation({
+    mutationFn: notificationService.deleteReadNotifications,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      alert('Read notifications deleted!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to delete notifications');
+    }
+  });
+
+  const updatePreferencesMutation = useMutation({
+    mutationFn: notificationService.updateNotificationPreferences,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notification-preferences'] });
+      alert('Preferences updated successfully!');
+      setShowSettings(false);
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to update preferences');
+    }
+  });
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-gray-600">Failed to load notifications</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const notifications = notificationsData?.data || [];
+  const [preferences, setPreferences] = useState(preferencesData?.data || { email: true, sms: true, push: true, 'in-app': true, collections: true, payments: true, tickets: true, system: true, pickups: true, feedback: false });
+
+  const handleMarkAsRead = (id: string) => {
+    markAsReadMutation.mutate(id);
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllAsReadMutation.mutate();
+  };
+
+  const handleDeleteRead = () => {
+    if (confirm('Delete all read notifications?')) {
+      deleteReadMutation.mutate();
+    }
+  };
+
+  const handleUpdatePreferences = () => {
+    const apiPrefs = { email: preferences.email, sms: preferences.sms, push: preferences.push, 'in-app': preferences['in-app'] };
+    updatePreferencesMutation.mutate(apiPrefs);
+  };
+
+  // Filter notifications (already handled by API, but keep for UI consistency)
+  const filteredNotifications = notifications.filter((notification: any) => {
     const matchesType = filterType === 'all' || notification.type === filterType;
     const matchesRead = filterRead === 'all' || 
-                       (filterRead === 'unread' && !notification.read) ||
-                       (filterRead === 'read' && notification.read);
+                       (filterRead === 'unread' && !notification.readAt) ||
+                       (filterRead === 'read' && notification.readAt);
     return matchesType && matchesRead;
   });
 
@@ -180,25 +192,7 @@ export const NotificationsPage = () => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const handleMarkAsRead = (id: string) => {
-    setNotifications(notifications.map(n => 
-      n.id === id ? { ...n, read: true } : n
-    ));
-  };
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
-  };
-
-  const handleDelete = (id: string) => {
-    setNotifications(notifications.filter(n => n.id !== id));
-  };
-
-  const handleClearAll = () => {
-    if (confirm('Are you sure you want to clear all notifications?')) {
-      setNotifications([]);
-    }
-  };
 
   return (
     <Layout>
@@ -300,11 +294,11 @@ export const NotificationsPage = () => {
               </button>
               {notifications.length > 0 && (
                 <button
-                  onClick={handleClearAll}
+                  onClick={handleDeleteRead}
                   className="px-4 py-2.5 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2"
                 >
                   <Trash2 className="w-5 h-5" />
-                  Clear All
+                  Delete Read
                 </button>
               )}
             </div>
@@ -346,11 +340,11 @@ export const NotificationsPage = () => {
 
         {/* Notifications List */}
         <div className="space-y-3">
-          {filteredNotifications.map((notification) => (
+          {filteredNotifications.map((notification: any) => (
             <div
-              key={notification.id}
+              key={notification._id}
               className={`bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden ${
-                !notification.read ? 'bg-blue-50 border-blue-200' : ''
+                !notification.readAt ? 'bg-blue-50 border-blue-200' : ''
               } ${getPriorityColor(notification.priority)}`}
             >
               <div className="p-5">
@@ -364,16 +358,16 @@ export const NotificationsPage = () => {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold text-gray-900">{notification.title}</h3>
-                          {!notification.read && (
+                          {!notification.readAt && (
                             <span className="inline-block w-2 h-2 bg-blue-600 rounded-full"></span>
                           )}
                         </div>
                         <p className="text-sm text-gray-600">{notification.message}</p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {!notification.read && (
+                        {!notification.readAt && (
                           <button
-                            onClick={() => handleMarkAsRead(notification.id)}
+                            onClick={() => handleMarkAsRead(notification._id)}
                             className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                             title="Mark as read"
                           >
@@ -381,7 +375,7 @@ export const NotificationsPage = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => handleDelete(notification.id)}
+                          onClick={() => notificationService.deleteNotification(notification._id).then(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }))}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete"
                         >
@@ -393,11 +387,11 @@ export const NotificationsPage = () => {
                     <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
-                        {formatTimestamp(notification.timestamp)}
+                        {formatTimestamp(notification.sentAt || notification.createdAt)}
                       </span>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        notification.priority === 'high' ? 'bg-red-100 text-red-700' :
-                        notification.priority === 'normal' ? 'bg-blue-100 text-blue-700' :
+                        notification.priority === 'urgent' || notification.priority === 'high' ? 'bg-red-100 text-red-700' :
+                        notification.priority === 'medium' ? 'bg-blue-100 text-blue-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>
                         {notification.priority}

@@ -1,148 +1,92 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Calendar, Package, Plus, ChevronLeft, ChevronRight, Clock,
   MapPin, Users, CheckCircle, AlertCircle, Filter, X, Truck,
-  ClipboardList, Download, Eye
+  ClipboardList, Download, Eye, Loader2
 } from 'lucide-react';
-
-interface Collection {
-  id: string;
-  date: string;
-  time: string;
-  area: string;
-  routeId: string;
-  routeName: string;
-  collector?: string;
-  vehicleNumber?: string;
-  status: 'scheduled' | 'in_progress' | 'completed' | 'missed' | 'cancelled';
-  binsCollected?: number;
-  totalBins?: number;
-  wasteType: string;
-  notes?: string;
-}
+import { collectionService, type CollectionRecord } from '../services/collection.service';
 
 export const CollectionsPage = () => {
+  const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
+  const [selectedCollection, setSelectedCollection] = useState<CollectionRecord | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterArea, setFilterArea] = useState<string>('all');
 
-  // Mock collections data
-  const [collections] = useState<Collection[]>([
-    {
-      id: 'COL001',
-      date: '2024-10-14',
-      time: '06:00 AM',
-      area: 'Downtown',
-      routeId: 'RT001',
-      routeName: 'Downtown Route A',
-      collector: 'John Smith',
-      vehicleNumber: 'WM-101',
-      status: 'scheduled',
-      totalBins: 25,
-      binsCollected: 0,
-      wasteType: 'General Waste'
-    },
-    {
-      id: 'COL002',
-      date: '2024-10-14',
-      time: '07:00 AM',
-      area: 'Suburbs',
-      routeId: 'RT002',
-      routeName: 'Suburban Route B',
-      collector: 'Mike Johnson',
-      vehicleNumber: 'WM-102',
-      status: 'in_progress',
-      totalBins: 35,
-      binsCollected: 15,
-      wasteType: 'Mixed Waste'
-    },
-    {
-      id: 'COL003',
-      date: '2024-10-13',
-      time: '06:00 AM',
-      area: 'Downtown',
-      routeId: 'RT001',
-      routeName: 'Downtown Route A',
-      collector: 'John Smith',
-      vehicleNumber: 'WM-101',
-      status: 'completed',
-      totalBins: 25,
-      binsCollected: 25,
-      wasteType: 'General Waste'
-    },
-    {
-      id: 'COL004',
-      date: '2024-10-15',
-      time: '07:00 AM',
-      area: 'Suburbs',
-      routeId: 'RT002',
-      routeName: 'Suburban Route B',
-      collector: 'Mike Johnson',
-      vehicleNumber: 'WM-102',
-      status: 'scheduled',
-      totalBins: 35,
-      binsCollected: 0,
-      wasteType: 'Recyclables'
-    },
-    {
-      id: 'COL005',
-      date: '2024-10-12',
-      time: '05:00 AM',
-      area: 'Industrial',
-      routeId: 'RT003',
-      routeName: 'Industrial Zone Route',
-      collector: 'Sarah Williams',
-      vehicleNumber: 'WM-103',
-      status: 'completed',
-      totalBins: 18,
-      binsCollected: 18,
-      wasteType: 'General Waste'
-    },
-    {
-      id: 'COL006',
-      date: '2024-10-11',
-      time: '06:30 AM',
-      area: 'East Side',
-      routeId: 'RT004',
-      routeName: 'East Side Community',
-      status: 'missed',
-      totalBins: 20,
-      binsCollected: 0,
-      wasteType: 'Organic Waste',
-      notes: 'Vehicle breakdown'
-    },
-    {
-      id: 'COL007',
-      date: '2024-10-16',
-      time: '06:00 AM',
-      area: 'Downtown',
-      routeId: 'RT001',
-      routeName: 'Downtown Route A',
-      status: 'scheduled',
-      totalBins: 25,
-      binsCollected: 0,
-      wasteType: 'Recyclables'
-    },
-    {
-      id: 'COL008',
-      date: '2024-10-17',
-      time: '07:00 AM',
-      area: 'Suburbs',
-      routeId: 'RT002',
-      routeName: 'Suburban Route B',
-      status: 'scheduled',
-      totalBins: 35,
-      binsCollected: 0,
-      wasteType: 'General Waste'
-    }
-  ]);
+  // Fetch collections with filters
+  const { data: collectionsData, isLoading, error } = useQuery({
+    queryKey: ['collections', filterStatus, filterArea],
+    queryFn: () => collectionService.getAllCollections({
+      status: filterStatus !== 'all' ? filterStatus : undefined
+    })
+  });
 
-  const [newCollection, setNewCollection] = useState<Partial<Collection>>({
+  // Fetch stats
+  const { data: statsData } = useQuery({
+    queryKey: ['collection-stats'],
+    queryFn: () => collectionService.getCollectionStats()
+  });
+
+  // Create collection mutation
+  const createMutation = useMutation({
+    mutationFn: collectionService.createCollection,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+      queryClient.invalidateQueries({ queryKey: ['collection-stats'] });
+      setShowScheduleModal(false);
+      alert('Collection created successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to create collection');
+    }
+  });
+
+  // Delete collection mutation
+  const deleteMutation = useMutation({
+    mutationFn: collectionService.deleteCollection,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+      queryClient.invalidateQueries({ queryKey: ['collection-stats'] });
+      alert('Collection deleted successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to delete collection');
+    }
+  });
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+          <span className="ml-2 text-gray-600">Loading collections...</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-64">
+          <AlertCircle className="w-8 h-8 text-red-600 mr-2" />
+          <span className="text-gray-600">Failed to load collections</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  const collections = collectionsData?.data || [];
+  const stats = statsData?.data;
+
+  const [newCollection, setNewCollection] = useState({
     date: '',
     time: '',
     area: '',
@@ -173,7 +117,10 @@ export const CollectionsPage = () => {
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
-    return collections.filter(c => c.date === dateStr);
+    return collections.filter((c: any) => {
+      const collectionDate = new Date(c.collectionDate).toISOString().split('T')[0];
+      return collectionDate === dateStr;
+    });
   };
 
   const previousMonth = () => {
@@ -184,21 +131,8 @@ export const CollectionsPage = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
   };
 
-  // Filter collections
-  const filteredCollections = collections.filter(collection => {
-    const matchesStatus = filterStatus === 'all' || collection.status === filterStatus;
-    const matchesArea = filterArea === 'all' || collection.area === filterArea;
-    return matchesStatus && matchesArea;
-  });
-
-  // Statistics
-  const stats = {
-    total: collections.length,
-    scheduled: collections.filter(c => c.status === 'scheduled').length,
-    inProgress: collections.filter(c => c.status === 'in_progress').length,
-    completed: collections.filter(c => c.status === 'completed').length,
-    missed: collections.filter(c => c.status === 'missed').length
-  };
+  // Filter collections (simplified - filtering done by API)
+  const filteredCollections = collections;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -449,32 +383,32 @@ export const CollectionsPage = () => {
 
             {/* Collections List */}
             <div className="space-y-4">
-              {filteredCollections.map((collection) => (
+              {filteredCollections.map((collection: any) => (
                 <div
-                  key={collection.id}
+                  key={collection._id}
                   className="bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden"
                 >
                   <div className="p-6">
                     <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                       <div className="flex-1 space-y-3">
                         <div className="flex items-start gap-3">
-                          <div className={`p-2 rounded-lg ${collection.status === 'completed' ? 'bg-emerald-100' : 'bg-blue-100'}`}>
+                          <div className={`p-2 rounded-lg ${collection.status === 'collected' ? 'bg-emerald-100' : 'bg-blue-100'}`}>
                             <Package className="w-5 h-5" />
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-2">
-                              <span className="text-xs font-mono text-gray-500">{collection.id}</span>
+                              <span className="text-xs font-mono text-gray-500">{collection._id.slice(-6)}</span>
                               <span className={`px-2 py-1 rounded border text-xs font-medium flex items-center gap-1 ${getStatusColor(collection.status)}`}>
                                 {getStatusIcon(collection.status)}
                                 {collection.status.replace('_', ' ')}
                               </span>
-                              {collection.status === 'in_progress' && (
-                                <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
-                                  {collection.binsCollected}/{collection.totalBins} bins
+                              {collection.wasteWeight && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                                  {collection.wasteWeight} kg
                                 </span>
                               )}
                             </div>
-                            <h3 className="font-semibold text-gray-900 text-lg mb-1">{collection.routeName}</h3>
+                            <h3 className="font-semibold text-gray-900 text-lg mb-1">{collection.route?.routeName || 'N/A'}</h3>
                             <p className="text-sm text-gray-600">{collection.wasteType}</p>
                           </div>
                         </div>
@@ -482,26 +416,26 @@ export const CollectionsPage = () => {
                         <div className="flex flex-wrap gap-4 text-sm text-gray-600 pt-2 border-t border-gray-100">
                           <div className="flex items-center gap-1">
                             <Calendar className="w-4 h-4" />
-                            <span>{collection.date}</span>
+                            <span>{new Date(collection.collectionDate).toLocaleDateString()}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Clock className="w-4 h-4" />
-                            <span>{collection.time}</span>
+                            <span>{new Date(collection.collectionDate).toLocaleTimeString()}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <MapPin className="w-4 h-4" />
-                            <span>{collection.area}</span>
+                            <span>{collection.location?.area || collection.route?.area || 'N/A'}</span>
                           </div>
                           {collection.collector && (
                             <div className="flex items-center gap-1 text-emerald-600">
                               <Users className="w-4 h-4" />
-                              <span>{collection.collector}</span>
+                              <span>{collection.collector?.firstName} {collection.collector?.lastName}</span>
                             </div>
                           )}
-                          {collection.vehicleNumber && (
+                          {collection.binLevelBefore && collection.binLevelAfter && (
                             <div className="flex items-center gap-1">
                               <Truck className="w-4 h-4" />
-                              <span>{collection.vehicleNumber}</span>
+                              <span>Bin: {collection.binLevelBefore}% → {collection.binLevelAfter}%</span>
                             </div>
                           )}
                         </div>
@@ -684,23 +618,23 @@ export const CollectionsPage = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">ID</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.id}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection._id.slice(-6)}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Route</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.routeName}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.route?.routeName || 'N/A'}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Date</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.date}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{new Date(selectedCollection.collectionDate).toLocaleDateString()}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Time</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.time}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{new Date(selectedCollection.collectionDate).toLocaleTimeString()}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Area</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.area}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.location?.area || selectedCollection.route?.area || 'N/A'}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-xs font-semibold text-gray-500 uppercase">Waste Type</p>
@@ -712,33 +646,31 @@ export const CollectionsPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-4 bg-emerald-50 rounded-lg">
                     <p className="text-xs font-semibold text-emerald-700 uppercase">Collector</p>
-                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.collector}</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.collector?.firstName} {selectedCollection.collector?.lastName}</p>
                   </div>
-                  {selectedCollection.vehicleNumber && (
-                    <div className="p-4 bg-blue-50 rounded-lg">
-                      <p className="text-xs font-semibold text-blue-700 uppercase">Vehicle</p>
-                      <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.vehicleNumber}</p>
-                    </div>
-                  )}
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <p className="text-xs font-semibold text-blue-700 uppercase">Waste Weight</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedCollection.wasteWeight} kg</p>
+                  </div>
                 </div>
               )}
 
-              {(selectedCollection.status === 'in_progress' || selectedCollection.status === 'completed') && (
+              {selectedCollection.status === 'collected' && (
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Collection Progress</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Bin Level</p>
                     <span className="text-sm font-bold text-gray-900">
-                      {selectedCollection.binsCollected}/{selectedCollection.totalBins} bins
+                      {selectedCollection.binLevelBefore}% → {selectedCollection.binLevelAfter}%
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
                     <div
                       className="bg-gradient-to-r from-emerald-500 to-teal-600 h-3 rounded-full transition-all duration-300"
-                      style={{ width: `${(selectedCollection.binsCollected! / selectedCollection.totalBins!) * 100}%` }}
+                      style={{ width: `${selectedCollection.binLevelAfter}%` }}
                     />
                   </div>
                   <p className="text-xs text-gray-600 mt-1 text-center">
-                    {Math.round((selectedCollection.binsCollected! / selectedCollection.totalBins!) * 100)}% Complete
+                    Reduced from {selectedCollection.binLevelBefore}% to {selectedCollection.binLevelAfter}%
                   </p>
                 </div>
               )}
