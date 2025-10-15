@@ -3,31 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   AlertCircle, Plus, Search, Filter, MessageSquare, Clock,
-  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send, Image
+  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send
 } from 'lucide-react';
-import { ticketService, type Ticket as TicketType } from '../services/ticket.service';
-
-interface Ticket {
-  id: string;
-  title: string;
-  description: string;
-  category: 'missed_pickup' | 'damaged_bin' | 'complaint' | 'request' | 'other';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  createdDate: string;
-  resolvedDate?: string;
-  assignedTo?: string;
-  location?: string;
-  comments?: Comment[];
-  attachments?: string[];
-}
-
-interface Comment {
-  id: string;
-  author: string;
-  content: string;
-  timestamp: string;
-}
+import { ticketService, type Ticket } from '../services/ticket.service';
 
 export const TicketsPage = () => {
   const queryClient = useQueryClient();
@@ -37,105 +15,124 @@ export const TicketsPage = () => {
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [commentText, setCommentText] = useState('');
 
-  // Mock data
-  const [tickets, setTickets] = useState<Ticket[]>([
-    {
-      id: 'TCK001',
-      title: 'Missed Waste Collection',
-      description: 'Waste was not collected on scheduled date October 10th',
-      category: 'missed_pickup',
-      priority: 'high',
-      status: 'in_progress',
-      createdDate: '2024-10-11',
-      assignedTo: 'John Smith',
-      location: '123 Main St, Apt 4B',
-      comments: [
-        { id: '1', author: 'Support Team', content: 'We are investigating this issue.', timestamp: '2024-10-11 10:30' }
-      ]
+  // Fetch tickets with React Query
+  const { data: ticketsData, isLoading, error } = useQuery({
+    queryKey: ['tickets', { 
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      priority: filterPriority !== 'all' ? filterPriority : undefined,
+      category: filterCategory !== 'all' ? filterCategory : undefined,
+      search: searchTerm || undefined
+    }],
+    queryFn: () => ticketService.getAllTickets({
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      priority: filterPriority !== 'all' ? filterPriority : undefined,
+      category: filterCategory !== 'all' ? filterCategory : undefined,
+      search: searchTerm || undefined
+    })
+  });
+
+  const tickets = ticketsData?.data || [];
+
+  // Create ticket mutation
+  const createTicketMutation = useMutation({
+    mutationFn: ticketService.createTicket,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      setShowCreateModal(false);
+      resetNewTicket();
     },
-    {
-      id: 'TCK002',
-      title: 'Damaged Recycling Bin',
-      description: 'The blue recycling bin has a crack and is leaking',
-      category: 'damaged_bin',
-      priority: 'medium',
-      status: 'open',
-      createdDate: '2024-10-12',
-      location: '123 Main St, Apt 4B'
-    },
-    {
-      id: 'TCK003',
-      title: 'Request for Bulk Item Pickup',
-      description: 'Need to dispose of old furniture - sofa and table',
-      category: 'request',
-      priority: 'low',
-      status: 'resolved',
-      createdDate: '2024-10-05',
-      resolvedDate: '2024-10-08',
-      assignedTo: 'Mike Johnson',
-      location: '123 Main St, Apt 4B'
-    },
-    {
-      id: 'TCK004',
-      title: 'Noise Complaint During Collection',
-      description: 'Collection truck making excessive noise very early in the morning',
-      category: 'complaint',
-      priority: 'medium',
-      status: 'closed',
-      createdDate: '2024-10-01',
-      resolvedDate: '2024-10-03',
-      assignedTo: 'Sarah Williams'
-    },
-    {
-      id: 'TCK005',
-      title: 'Overflowing Community Bin',
-      description: 'The community bin at the corner is overflowing and attracting pests',
-      category: 'complaint',
-      priority: 'urgent',
-      status: 'in_progress',
-      createdDate: '2024-10-13',
-      assignedTo: 'John Smith',
-      location: 'Corner of Main St & 5th Ave'
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to create ticket');
     }
-  ]);
+  });
 
-  const [newTicket, setNewTicket] = useState<Partial<Ticket>>({
-    title: '',
+  // Update ticket mutation
+  const updateTicketMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => ticketService.updateTicket(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to update ticket');
+    }
+  });
+
+  // Delete ticket mutation
+  const deleteTicketMutation = useMutation({
+    mutationFn: ticketService.deleteTicket,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to delete ticket');
+    }
+  });
+
+  // Add comment mutation
+  const addCommentMutation = useMutation({
+    mutationFn: ({ id, comment }: { id: string; comment: string }) => 
+      ticketService.addComment(id, comment),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      setCommentText('');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to add comment');
+    }
+  });
+
+  const [newTicket, setNewTicket] = useState({
+    subject: '',
     description: '',
-    category: 'complaint',
-    priority: 'medium',
-    status: 'open',
-    createdDate: new Date().toISOString().split('T')[0],
-    location: ''
+    category: 'complaint' as const,
+    priority: 'medium' as const
   });
 
-  // Filter tickets
-  const filteredTickets = tickets.filter(ticket => {
-    const matchesSearch = ticket.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         ticket.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || ticket.status === filterStatus;
-    const matchesPriority = filterPriority === 'all' || ticket.priority === filterPriority;
-    const matchesCategory = filterCategory === 'all' || ticket.category === filterCategory;
-    return matchesSearch && matchesStatus && matchesPriority && matchesCategory;
-  });
+  // Loading and error states
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading tickets...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-gray-900 font-medium">Failed to load tickets</p>
+            <p className="text-gray-600 mt-2">Please try refreshing the page</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   // Statistics
   const stats = {
     total: tickets.length,
-    open: tickets.filter(t => t.status === 'open').length,
-    inProgress: tickets.filter(t => t.status === 'in_progress').length,
-    resolved: tickets.filter(t => t.status === 'resolved').length,
-    urgent: tickets.filter(t => t.priority === 'urgent').length
+    open: tickets.filter((t: Ticket) => t.status === 'open').length,
+    inProgress: tickets.filter((t: Ticket) => t.status === 'in-progress').length,
+    resolved: tickets.filter((t: Ticket) => t.status === 'resolved').length,
+    urgent: tickets.filter((t: Ticket) => t.priority === 'urgent').length
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'in_progress': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'in-progress': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       case 'resolved': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
       case 'closed': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
@@ -154,10 +151,11 @@ export const TicketsPage = () => {
 
   const getCategoryColor = (category: string) => {
     switch (category) {
-      case 'missed_pickup': return 'bg-blue-100 text-blue-700';
-      case 'damaged_bin': return 'bg-orange-100 text-orange-700';
+      case 'collection': return 'bg-blue-100 text-blue-700';
+      case 'bin': return 'bg-orange-100 text-orange-700';
+      case 'payment': return 'bg-green-100 text-green-700';
+      case 'technical': return 'bg-purple-100 text-purple-700';
       case 'complaint': return 'bg-red-100 text-red-700';
-      case 'request': return 'bg-purple-100 text-purple-700';
       case 'other': return 'bg-gray-100 text-gray-700';
       default: return 'bg-gray-100 text-gray-700';
     }
@@ -166,7 +164,7 @@ export const TicketsPage = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'open': return <AlertCircle className="w-4 h-4" />;
-      case 'in_progress': return <Clock className="w-4 h-4" />;
+      case 'in-progress': return <Clock className="w-4 h-4" />;
       case 'resolved': return <CheckCircle className="w-4 h-4" />;
       case 'closed': return <XCircle className="w-4 h-4" />;
       default: return <AlertCircle className="w-4 h-4" />;
@@ -174,48 +172,24 @@ export const TicketsPage = () => {
   };
 
   const handleCreateTicket = () => {
-    const ticket: Ticket = {
-      id: `TCK${String(tickets.length + 1).padStart(3, '0')}`,
-      title: newTicket.title!,
-      description: newTicket.description!,
-      category: newTicket.category as Ticket['category'],
-      priority: newTicket.priority as Ticket['priority'],
-      status: 'open',
-      createdDate: newTicket.createdDate!,
-      location: newTicket.location
-    };
-    setTickets([ticket, ...tickets]);
-    setShowCreateModal(false);
-    resetNewTicket();
+    createTicketMutation.mutate(newTicket);
   };
 
   const handleAddComment = () => {
     if (selectedTicket && commentText.trim()) {
-      const newComment: Comment = {
-        id: String(Date.now()),
-        author: 'Current User',
-        content: commentText,
-        timestamp: new Date().toLocaleString()
-      };
-      const updatedTicket = {
-        ...selectedTicket,
-        comments: [...(selectedTicket.comments || []), newComment]
-      };
-      setTickets(tickets.map(t => t.id === selectedTicket.id ? updatedTicket : t));
-      setSelectedTicket(updatedTicket);
-      setCommentText('');
+      addCommentMutation.mutate({ 
+        id: selectedTicket._id, 
+        comment: commentText 
+      });
     }
   };
 
   const resetNewTicket = () => {
     setNewTicket({
-      title: '',
+      subject: '',
       description: '',
       category: 'complaint',
-      priority: 'medium',
-      status: 'open',
-      createdDate: new Date().toISOString().split('T')[0],
-      location: ''
+      priority: 'medium'
     });
   };
 
@@ -380,9 +354,9 @@ export const TicketsPage = () => {
 
         {/* Tickets List */}
         <div className="space-y-4">
-          {filteredTickets.map((ticket) => (
+          {tickets.map((ticket: Ticket) => (
             <div
-              key={ticket.id}
+              key={ticket._id}
               className="bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer"
               onClick={() => {
                 setSelectedTicket(ticket);
@@ -398,9 +372,9 @@ export const TicketsPage = () => {
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-gray-500">{ticket.id}</span>
+                          <span className="text-xs font-mono text-gray-500">{ticket.ticketId}</span>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryColor(ticket.category)}`}>
-                            {ticket.category.replace('_', ' ')}
+                            {ticket.category}
                           </span>
                           <span className={`px-2 py-1 rounded border text-xs font-medium ${getPriorityColor(ticket.priority)}`}>
                             {ticket.priority}
@@ -410,7 +384,7 @@ export const TicketsPage = () => {
                             {ticket.status.replace('_', ' ')}
                           </span>
                         </div>
-                        <h3 className="font-semibold text-gray-900 text-lg mb-1">{ticket.title}</h3>
+                        <h3 className="font-semibold text-gray-900 text-lg mb-1">{ticket.subject}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2">{ticket.description}</p>
                       </div>
                     </div>
@@ -418,12 +392,12 @@ export const TicketsPage = () => {
                     <div className="flex flex-wrap gap-4 text-sm text-gray-600 pt-2 border-t border-gray-100">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        <span>{ticket.createdDate}</span>
+                        <span>{new Date(ticket.createdAt).toLocaleDateString()}</span>
                       </div>
                       {ticket.assignedTo && (
                         <div className="flex items-center gap-1">
                           <User className="w-4 h-4" />
-                          <span>{ticket.assignedTo}</span>
+                          <span>{ticket.assignedTo.firstName} {ticket.assignedTo.lastName}</span>
                         </div>
                       )}
                       {ticket.comments && ticket.comments.length > 0 && (
@@ -445,7 +419,7 @@ export const TicketsPage = () => {
           ))}
         </div>
 
-        {filteredTickets.length === 0 && (
+        {tickets.length === 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
             <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No tickets found</h3>
@@ -467,11 +441,11 @@ export const TicketsPage = () => {
 
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Subject *</label>
                 <input
                   type="text"
-                  value={newTicket.title}
-                  onChange={(e) => setNewTicket({ ...newTicket, title: e.target.value })}
+                  value={newTicket.subject}
+                  onChange={(e) => setNewTicket({ ...newTicket, subject: e.target.value })}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   placeholder="Brief description of the issue"
                 />
@@ -488,18 +462,19 @@ export const TicketsPage = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Category *</label>
                   <select
                     value={newTicket.category}
-                    onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value as Ticket['category'] })}
+                    onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value as any })}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   >
-                    <option value="missed_pickup">Missed Pickup</option>
-                    <option value="damaged_bin">Damaged Bin</option>
+                    <option value="collection">Collection Issue</option>
+                    <option value="bin">Bin Issue</option>
+                    <option value="payment">Payment Issue</option>
+                    <option value="technical">Technical Issue</option>
                     <option value="complaint">Complaint</option>
-                    <option value="request">Request</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
@@ -508,7 +483,7 @@ export const TicketsPage = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Priority *</label>
                   <select
                     value={newTicket.priority}
-                    onChange={(e) => setNewTicket({ ...newTicket, priority: e.target.value as Ticket['priority'] })}
+                    onChange={(e) => setNewTicket({ ...newTicket, priority: e.target.value as any })}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   >
                     <option value="low">Low</option>
@@ -517,27 +492,6 @@ export const TicketsPage = () => {
                     <option value="urgent">Urgent</option>
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Image className="w-4 h-4 inline mr-1" />
-                    Attachments
-                  </label>
-                  <button className="w-full px-4 py-2.5 border-2 border-dashed border-gray-300 rounded-lg hover:border-emerald-500 transition-colors text-sm text-gray-600">
-                    Upload Files
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Location (Optional)</label>
-                <input
-                  type="text"
-                  value={newTicket.location}
-                  onChange={(e) => setNewTicket({ ...newTicket, location: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  placeholder="Relevant location"
-                />
               </div>
             </div>
 
@@ -550,10 +504,10 @@ export const TicketsPage = () => {
               </button>
               <button
                 onClick={handleCreateTicket}
-                disabled={!newTicket.title || !newTicket.description}
+                disabled={!newTicket.subject || !newTicket.description || createTicketMutation.isPending}
                 className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
-                Create Ticket
+                {createTicketMutation.isPending ? 'Creating...' : 'Create Ticket'}
               </button>
             </div>
           </div>
@@ -567,7 +521,7 @@ export const TicketsPage = () => {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-gray-900">Ticket Details</h2>
-                <span className="text-sm font-mono text-gray-500">{selectedTicket.id}</span>
+                <span className="text-sm font-mono text-gray-500">{selectedTicket.ticketId}</span>
               </div>
               <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
@@ -589,9 +543,9 @@ export const TicketsPage = () => {
                 </span>
               </div>
 
-              {/* Title & Description */}
+              {/* Subject & Description */}
               <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedTicket.title}</h3>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedTicket.subject}</h3>
                 <p className="text-gray-700 leading-relaxed">{selectedTicket.description}</p>
               </div>
 
@@ -599,24 +553,30 @@ export const TicketsPage = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Created</label>
-                  <p className="text-sm font-medium text-gray-900 mt-1">{selectedTicket.createdDate}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1">
+                    {new Date(selectedTicket.createdAt).toLocaleString()}
+                  </p>
                 </div>
                 {selectedTicket.assignedTo && (
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase">Assigned To</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedTicket.assignedTo}</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1">
+                      {selectedTicket.assignedTo.firstName} {selectedTicket.assignedTo.lastName}
+                    </p>
                   </div>
                 )}
-                {selectedTicket.location && (
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 uppercase">Location</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedTicket.location}</p>
-                  </div>
-                )}
-                {selectedTicket.resolvedDate && (
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Created By</label>
+                  <p className="text-sm font-medium text-gray-900 mt-1">
+                    {selectedTicket.createdBy.firstName} {selectedTicket.createdBy.lastName}
+                  </p>
+                </div>
+                {selectedTicket.resolvedAt && (
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase">Resolved</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">{selectedTicket.resolvedDate}</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1">
+                      {new Date(selectedTicket.resolvedAt).toLocaleString()}
+                    </p>
                   </div>
                 )}
               </div>
@@ -630,12 +590,16 @@ export const TicketsPage = () => {
                 
                 <div className="space-y-4 mb-4">
                   {selectedTicket.comments?.map((comment) => (
-                    <div key={comment.id} className="bg-gray-50 rounded-lg p-4">
+                    <div key={comment._id} className="bg-gray-50 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-gray-900">{comment.author}</span>
-                        <span className="text-xs text-gray-500">{comment.timestamp}</span>
+                        <span className="font-medium text-gray-900">
+                          {comment.user.firstName} {comment.user.lastName}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {new Date(comment.createdAt).toLocaleString()}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-700">{comment.content}</p>
+                      <p className="text-sm text-gray-700">{comment.comment}</p>
                     </div>
                   ))}
                 </div>
