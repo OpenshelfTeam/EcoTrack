@@ -4,9 +4,17 @@ import { Layout } from '../components/Layout';
 import {
   CreditCard, DollarSign, Calendar, Download, Search, Filter,
   CheckCircle, Clock, XCircle, Receipt, TrendingUp,
-  X, Eye, Printer, AlertCircle
+  X, Eye, Printer, AlertCircle, Plus, Edit2, Trash2
 } from 'lucide-react';
 import { paymentService, type Payment } from '../services/payment.service';
+
+interface SavedPaymentMethod {
+  id: string;
+  type: 'card' | 'bank-transfer' | 'online';
+  name: string;
+  details: string;
+  isDefault: boolean;
+}
 
 export const PaymentsPage = () => {
   const queryClient = useQueryClient();
@@ -15,8 +23,42 @@ export const PaymentsPage = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showAddMethodModal, setShowAddMethodModal] = useState(false);
+  const [showSavedMethodsModal, setShowSavedMethodsModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
+  const [selectedSavedMethod, setSelectedSavedMethod] = useState<string>('');
+  const [editingMethod, setEditingMethod] = useState<SavedPaymentMethod | null>(null);
+  
+  // Saved payment methods (in real app, fetch from backend)
+  const [savedMethods, setSavedMethods] = useState<SavedPaymentMethod[]>([
+    {
+      id: '1',
+      type: 'card',
+      name: 'Visa ending in 4242',
+      details: '**** **** **** 4242',
+      isDefault: true
+    },
+    {
+      id: '2',
+      type: 'bank-transfer',
+      name: 'Bank Account',
+      details: 'Account ending in 1234',
+      isDefault: false
+    }
+  ]);
+
+  const [newMethod, setNewMethod] = useState({
+    type: 'card' as 'card' | 'bank-transfer' | 'online',
+    name: '',
+    cardNumber: '',
+    expiryDate: '',
+    cvv: '',
+    accountNumber: '',
+    routingNumber: '',
+    bankName: '',
+    isDefault: false
+  });
 
   // Fetch payments with React Query
   const { data: paymentsData, isLoading, error } = useQuery({
@@ -145,12 +187,101 @@ export const PaymentsPage = () => {
   const handlePayNow = (payment: Payment) => {
     setSelectedPayment(payment);
     setSelectedPaymentMethod('');
+    setSelectedSavedMethod('');
     setShowPaymentModal(true);
   };
 
   const handleViewInvoice = (payment: Payment) => {
     setSelectedPayment(payment);
     setShowInvoiceModal(true);
+  };
+
+  const handleAddPaymentMethod = () => {
+    setEditingMethod(null);
+    setNewMethod({
+      type: 'card',
+      name: '',
+      cardNumber: '',
+      expiryDate: '',
+      cvv: '',
+      accountNumber: '',
+      routingNumber: '',
+      bankName: '',
+      isDefault: savedMethods.length === 0
+    });
+    setShowAddMethodModal(true);
+  };
+
+  const handleEditMethod = (method: SavedPaymentMethod) => {
+    setEditingMethod(method);
+    setNewMethod({
+      type: method.type,
+      name: method.name,
+      cardNumber: method.details,
+      expiryDate: '',
+      cvv: '',
+      accountNumber: '',
+      routingNumber: '',
+      bankName: '',
+      isDefault: method.isDefault
+    });
+    setShowAddMethodModal(true);
+  };
+
+  const handleDeleteMethod = (methodId: string) => {
+    if (confirm('Are you sure you want to delete this payment method?')) {
+      setSavedMethods(savedMethods.filter(m => m.id !== methodId));
+      alert('Payment method deleted successfully!');
+    }
+  };
+
+  const handleSavePaymentMethod = () => {
+    if (editingMethod) {
+      // Update existing method
+      setSavedMethods(savedMethods.map(m => 
+        m.id === editingMethod.id 
+          ? {
+              ...m,
+              name: newMethod.name,
+              type: newMethod.type,
+              details: newMethod.type === 'card' 
+                ? `**** **** **** ${newMethod.cardNumber.slice(-4)}`
+                : `Account ending in ${newMethod.accountNumber.slice(-4)}`,
+              isDefault: newMethod.isDefault
+            }
+          : { ...m, isDefault: newMethod.isDefault ? false : m.isDefault }
+      ));
+      alert('Payment method updated successfully!');
+    } else {
+      // Add new method
+      const newId = (savedMethods.length + 1).toString();
+      const method: SavedPaymentMethod = {
+        id: newId,
+        type: newMethod.type,
+        name: newMethod.name,
+        details: newMethod.type === 'card' 
+          ? `**** **** **** ${newMethod.cardNumber.slice(-4)}`
+          : `Account ending in ${newMethod.accountNumber.slice(-4)}`,
+        isDefault: newMethod.isDefault
+      };
+      
+      setSavedMethods([
+        ...savedMethods.map(m => ({ ...m, isDefault: newMethod.isDefault ? false : m.isDefault })),
+        method
+      ]);
+      alert('Payment method added successfully!');
+    }
+    
+    setShowAddMethodModal(false);
+    setEditingMethod(null);
+  };
+
+  const handleUseSavedMethod = (methodId: string) => {
+    setSelectedSavedMethod(methodId);
+    const method = savedMethods.find(m => m.id === methodId);
+    if (method) {
+      setSelectedPaymentMethod(method.type === 'card' ? 'card' : method.type);
+    }
   };
 
   const handleDownloadInvoice = async (payment: Payment) => {
@@ -194,6 +325,22 @@ export const PaymentsPage = () => {
               Payments & Billing
             </h1>
             <p className="text-gray-600 mt-1">Manage your payment history and billing information</p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowSavedMethodsModal(true)}
+              className="px-4 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-2"
+            >
+              <CreditCard className="w-5 h-5" />
+              My Payment Methods ({savedMethods.length})
+            </button>
+            <button
+              onClick={handleAddPaymentMethod}
+              className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              <Plus className="w-5 h-5" />
+              Add Payment Method
+            </button>
           </div>
         </div>
 
@@ -404,14 +551,59 @@ export const PaymentsPage = () => {
                 <p className="text-xs text-gray-500">Due: {new Date(selectedPayment.dueDate).toLocaleDateString()}</p>
               </div>
 
+              {/* Saved Payment Methods */}
+              {savedMethods.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Saved Payment Methods</label>
+                  <div className="space-y-2">
+                    {savedMethods.map((method) => (
+                      <label
+                        key={method.id}
+                        className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                          selectedSavedMethod === method.id
+                            ? 'border-emerald-500 bg-emerald-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="savedMethod"
+                          value={method.id}
+                          checked={selectedSavedMethod === method.id}
+                          onChange={() => handleUseSavedMethod(method.id)}
+                          className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div className="ml-3 flex-1">
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="w-4 h-4 text-gray-600" />
+                            <span className="font-medium text-gray-900">{method.name}</span>
+                            {method.isDefault && (
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{method.details}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <p className="text-sm text-gray-600 mb-2">Or use a different method</p>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">Select Payment Method</label>
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  {savedMethods.length > 0 ? 'Other Payment Methods' : 'Select Payment Method'}
+                </label>
                 <div className="space-y-2">
                   {['cash', 'card', 'bank-transfer', 'online'].map((method) => (
                     <label
                       key={method}
                       className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        selectedPaymentMethod === method
+                        selectedPaymentMethod === method && !selectedSavedMethod
                           ? 'border-emerald-500 bg-emerald-50'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
@@ -420,8 +612,11 @@ export const PaymentsPage = () => {
                         type="radio"
                         name="paymentMethod"
                         value={method}
-                        checked={selectedPaymentMethod === method}
-                        onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                        checked={selectedPaymentMethod === method && !selectedSavedMethod}
+                        onChange={(e) => {
+                          setSelectedPaymentMethod(e.target.value);
+                          setSelectedSavedMethod('');
+                        }}
                         className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
                       />
                       <div className="ml-3 flex-1">
@@ -452,7 +647,7 @@ export const PaymentsPage = () => {
               </button>
               <button
                 onClick={handleProcessPayment}
-                disabled={!selectedPaymentMethod}
+                disabled={!selectedPaymentMethod && !selectedSavedMethod}
                 className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
                 Pay ${selectedPayment.amount.toFixed(2)}
@@ -588,6 +783,282 @@ export const PaymentsPage = () => {
               <button
                 onClick={() => { setShowInvoiceModal(false); setSelectedPayment(null); }}
                 className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Payment Method Modal */}
+      {showAddMethodModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex items-center justify-between rounded-t-2xl sticky top-0">
+              <h2 className="text-xl font-bold text-white">
+                {editingMethod ? 'Edit Payment Method' : 'Add Payment Method'}
+              </h2>
+              <button 
+                onClick={() => { setShowAddMethodModal(false); setEditingMethod(null); }} 
+                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Method Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Payment Method Type</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { value: 'card', label: 'Card' },
+                    { value: 'bank-transfer', label: 'Bank' },
+                    { value: 'online', label: 'Online' }
+                  ].map((type) => (
+                    <button
+                      key={type.value}
+                      onClick={() => setNewMethod({ ...newMethod, type: type.value as any })}
+                      className={`p-3 rounded-lg border-2 font-medium transition-all ${
+                        newMethod.type === type.value
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Method Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Display Name</label>
+                <input
+                  type="text"
+                  value={newMethod.name}
+                  onChange={(e) => setNewMethod({ ...newMethod, name: e.target.value })}
+                  placeholder="e.g., My Visa Card, Chase Bank"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Card Details */}
+              {newMethod.type === 'card' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Card Number</label>
+                    <input
+                      type="text"
+                      value={newMethod.cardNumber}
+                      onChange={(e) => setNewMethod({ ...newMethod, cardNumber: e.target.value.replace(/\s/g, '').slice(0, 16) })}
+                      placeholder="1234 5678 9012 3456"
+                      maxLength={16}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date</label>
+                      <input
+                        type="text"
+                        value={newMethod.expiryDate}
+                        onChange={(e) => setNewMethod({ ...newMethod, expiryDate: e.target.value })}
+                        placeholder="MM/YY"
+                        maxLength={5}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">CVV</label>
+                      <input
+                        type="text"
+                        value={newMethod.cvv}
+                        onChange={(e) => setNewMethod({ ...newMethod, cvv: e.target.value.slice(0, 4) })}
+                        placeholder="123"
+                        maxLength={4}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Bank Details */}
+              {newMethod.type === 'bank-transfer' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Bank Name</label>
+                    <input
+                      type="text"
+                      value={newMethod.bankName}
+                      onChange={(e) => setNewMethod({ ...newMethod, bankName: e.target.value })}
+                      placeholder="e.g., Chase Bank"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Account Number</label>
+                    <input
+                      type="text"
+                      value={newMethod.accountNumber}
+                      onChange={(e) => setNewMethod({ ...newMethod, accountNumber: e.target.value })}
+                      placeholder="Account number"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Routing Number</label>
+                    <input
+                      type="text"
+                      value={newMethod.routingNumber}
+                      onChange={(e) => setNewMethod({ ...newMethod, routingNumber: e.target.value })}
+                      placeholder="Routing number"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Set as Default */}
+              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
+                <input
+                  type="checkbox"
+                  id="setDefault"
+                  checked={newMethod.isDefault}
+                  onChange={(e) => setNewMethod({ ...newMethod, isDefault: e.target.checked })}
+                  className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                />
+                <label htmlFor="setDefault" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Set as default payment method
+                </label>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
+                <p className="font-medium mb-1">🔒 Secure Storage</p>
+                <p className="text-xs">Your payment information is encrypted and stored securely.</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 flex gap-3 rounded-b-2xl">
+              <button
+                onClick={() => { setShowAddMethodModal(false); setEditingMethod(null); }}
+                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePaymentMethod}
+                disabled={!newMethod.name || (newMethod.type === 'card' && (!newMethod.cardNumber || newMethod.cardNumber.length < 13)) || (newMethod.type === 'bank-transfer' && !newMethod.accountNumber)}
+                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {editingMethod ? 'Update Method' : 'Save Method'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Saved Payment Methods Modal */}
+      {showSavedMethodsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex items-center justify-between rounded-t-2xl sticky top-0">
+              <h2 className="text-xl font-bold text-white">My Payment Methods</h2>
+              <button 
+                onClick={() => setShowSavedMethodsModal(false)} 
+                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {savedMethods.length === 0 ? (
+                <div className="text-center py-12">
+                  <CreditCard className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No payment methods saved</h3>
+                  <p className="text-gray-600 mb-4">Add a payment method for faster checkout</p>
+                  <button
+                    onClick={() => {
+                      setShowSavedMethodsModal(false);
+                      handleAddPaymentMethod();
+                    }}
+                    className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add Payment Method
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    {savedMethods.map((method) => (
+                      <div
+                        key={method.id}
+                        className="bg-white border-2 border-gray-200 rounded-xl p-5 hover:border-emerald-200 transition-all"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-4 flex-1">
+                            <div className="p-3 bg-emerald-50 rounded-lg">
+                              <CreditCard className="w-6 h-6 text-emerald-600" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-semibold text-gray-900">{method.name}</h3>
+                                {method.isDefault && (
+                                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full font-medium">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600">{method.details}</p>
+                              <p className="text-xs text-gray-500 mt-1 capitalize">{method.type.replace('-', ' ')}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setShowSavedMethodsModal(false);
+                                handleEditMethod(method);
+                              }}
+                              className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMethod(method.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowSavedMethodsModal(false);
+                      handleAddPaymentMethod();
+                    }}
+                    className="w-full px-6 py-3 border-2 border-dashed border-gray-300 text-gray-700 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 font-medium"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add New Payment Method
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 rounded-b-2xl">
+              <button
+                onClick={() => setShowSavedMethodsModal(false)}
+                className="w-full px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all font-medium"
               >
                 Close
               </button>
