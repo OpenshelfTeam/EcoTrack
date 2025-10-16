@@ -31,7 +31,7 @@ router
   .route("/:id")
   .get(getTicket)
   .put(updateTicket) // Authorization handled in controller (residents can edit their own)
-  .delete(authorize("admin"), deleteTicket);
+  .delete(deleteTicket); // Authorization handled in controller (residents can delete their own)
 
 // Action routes
 router.patch(

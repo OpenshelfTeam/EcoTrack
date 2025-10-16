@@ -351,6 +351,7 @@ export const addComment = async (req, res) => {
         success: false,
         message: "Ticket not found",
       });
+    // Residents can only delete their own tickets
     }
 
     // Check if user has access to this ticket

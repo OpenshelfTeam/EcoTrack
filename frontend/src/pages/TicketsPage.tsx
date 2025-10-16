@@ -339,6 +339,21 @@ export const TicketsPage = () => {
     });
   };
 
+  const handleDeleteTicket = () => {
+    if (selectedTicket) {
+      if (window.confirm('Are you sure you want to delete this ticket? This action cannot be undone.')) {
+        deleteTicketMutation.mutate(selectedTicket._id, {
+          onSuccess: () => {
+            setShowDetailsModal(false);
+            setSelectedTicket(null);
+            setIsEditMode(false);
+            alert('Ticket deleted successfully');
+          }
+        });
+      }
+    }
+  };
+
   return (
     <Layout>
       <div className="p-6 mx-auto space-y-6 max-w-7xl">
@@ -989,8 +1004,17 @@ export const TicketsPage = () => {
             </div>
 
             <div className="sticky bottom-0 flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+              {user?.role === 'resident' && selectedTicket.reporter._id === user._id && !isEditMode && (
+                <button
+                  onClick={handleDeleteTicket}
+                  disabled={deleteTicketMutation.isPending}
+                  className="flex-1 px-6 py-2.5 border border-red-500 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deleteTicketMutation.isPending ? 'Deleting...' : 'Delete Ticket'}
+                </button>
+              )}
               <button
-                onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }}
+                onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); setIsEditMode(false); }}
                 className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
               >
                 Close
