@@ -140,6 +140,22 @@ export const TicketsPage = () => {
     }
   });
 
+  // Update status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => 
+      ticketService.updateStatus(id, status),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      alert('Ticket status updated successfully');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to update status');
+    }
+  });
+
   const [newTicket, setNewTicket] = useState({
     title: '',
     description: '',
@@ -253,6 +269,15 @@ export const TicketsPage = () => {
       resolveTicketMutation.mutate({
         id: selectedTicket._id,
         resolution: resolutionText
+      });
+    }
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    if (selectedTicket) {
+      updateStatusMutation.mutate({
+        id: selectedTicket._id,
+        status: newStatus
       });
     }
   };
@@ -656,6 +681,32 @@ export const TicketsPage = () => {
                   </div>
                 )}
               </div>
+
+              {/* Change Status Section - Only for Authority/Admin/Operator */}
+              {(user?.role === 'authority' || user?.role === 'admin' || user?.role === 'operator') && (
+                <div className="pt-6 border-t border-gray-200">
+                  <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
+                    <Clock className="w-5 h-5 text-purple-600" />
+                    Change Ticket Status
+                  </h4>
+                  <div className="flex gap-3">
+                    <select
+                      value={selectedTicket.status}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      disabled={updateStatusMutation.isPending}
+                      className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Current status: <span className="font-medium capitalize">{selectedTicket.status.replace('-', ' ')}</span>
+                  </p>
+                </div>
+              )}
 
               {/* Assignment Section - Only for Authority/Admin */}
               {(user?.role === 'authority' || user?.role === 'admin') && 
