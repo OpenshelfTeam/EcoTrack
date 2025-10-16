@@ -3,6 +3,8 @@ import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '../services/analytics.service';
+import { routeService } from '../services/route.service';
+import { collectionService } from '../services/collection.service';
 import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Truck, AlertCircle, DollarSign, TrendingUp, ArrowUp, 
@@ -29,6 +31,44 @@ export const DashboardPage: React.FC = () => {
     refetchInterval: 60000, // Refetch every minute
   });
 
+  // Fetch collector-specific route statistics
+  const { data: routeStatsData, isLoading: routeStatsLoading } = useQuery({
+    queryKey: ['route-stats'],
+    queryFn: () => routeService.getRouteStats(),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch collector-specific collection statistics
+  const { data: collectionStatsData, isLoading: collectionStatsLoading } = useQuery({
+    queryKey: ['collection-stats'],
+    queryFn: () => collectionService.getCollectionStats(),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch today's routes for collector
+  const { data: todayRoutesData } = useQuery({
+    queryKey: ['today-routes'],
+    queryFn: () => routeService.getAllRoutes({ 
+      status: 'in-progress',
+      scheduledDate: new Date().toISOString().split('T')[0]
+    }),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000,
+  });
+
+  // Fetch recent collections for activity feed
+  const { data: recentCollectionsData } = useQuery({
+    queryKey: ['recent-collections'],
+    queryFn: () => collectionService.getAllCollections({
+      limit: 5,
+      sort: '-collectionDate'
+    }),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000,
+  });
+
   const stats = dashboardData?.data || {
     bins: { total: 0, active: 0, needingCollection: 0, change: 0 },
     collections: { total: 0, today: 0, change: 0 },
@@ -38,6 +78,28 @@ export const DashboardPage: React.FC = () => {
     routes: { active: 0 },
     users: { total: 0, change: 0 }
   };
+
+  // Collector-specific stats
+  const routeStats = routeStatsData?.data || {
+    total: 0,
+    pending: 0,
+    'in-progress': 0,
+    completed: 0,
+    todayRoutes: 0,
+    totalBinsCollected: 0,
+    completedRoutes: 0
+  };
+
+  const collectionStats = collectionStatsData?.data || {
+    total: 0,
+    collected: 0,
+    todayCollections: 0,
+    weekCollections: 0,
+    totalWeightCollected: 0
+  };
+
+  const todayRoutes = todayRoutesData?.data || [];
+  const recentCollections = recentCollectionsData?.data || [];
 
   // Fetch efficiency metrics
   const { data: efficiencyData } = useQuery({
@@ -276,7 +338,7 @@ export const DashboardPage: React.FC = () => {
 
         {/* Stats Grid - Collector */}
         {user?.role === 'collector' && (
-          statsLoading ? (
+          statsLoading || routeStatsLoading || collectionStatsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
@@ -287,7 +349,7 @@ export const DashboardPage: React.FC = () => {
               <StatCard
                 icon={Truck}
                 title="Active Routes"
-                value={stats.routes?.active?.toLocaleString() || '0'}
+                value={routeStats['in-progress']?.toLocaleString() || '0'}
                 subtitle="Assigned to you"
                 color="text-blue-600"
                 bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
@@ -297,31 +359,31 @@ export const DashboardPage: React.FC = () => {
               <StatCard
                 icon={Trash2}
                 title="Collections"
-                value={stats.collections?.today?.toLocaleString() || '0'}
+                value={collectionStats.todayCollections?.toLocaleString() || '0'}
                 subtitle="Today"
                 color="text-emerald-600"
                 bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-                trend={stats.collections?.change || 0}
+                trend={null}
                 delay={200}
               />
               <StatCard
-                icon={AlertCircle}
+                icon={CheckCircle}
                 title="Pending Issues"
-                value={stats.tickets?.open?.toLocaleString() || '0'}
-                subtitle="Need attention"
+                value={routeStats.pending?.toLocaleString() || '0'}
+                subtitle="Routes pending"
                 color="text-orange-600"
                 bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-                trend={stats.tickets?.change || 0}
+                trend={null}
                 delay={300}
               />
               <StatCard
                 icon={TrendingUp}
                 title="Completion"
-                value={`${Math.round(efficiency.routeEfficiency?.completionRate || 0)}%`}
-                subtitle="This week"
+                value={`${routeStats.completedRoutes || 0}`}
+                subtitle={`Total completed`}
                 color="text-purple-600"
                 bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-                trend={5}
+                trend={null}
                 delay={400}
               />
             </div>
@@ -399,7 +461,63 @@ export const DashboardPage: React.FC = () => {
               </button>
             </div>
             <div className="space-y-5">
-              {[
+              {user?.role === 'collector' && recentCollections.length > 0 ? (
+                recentCollections.map((collection: any, i: number) => {
+                  const getTimeAgo = (date: string) => {
+                    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
+                    if (seconds < 60) return 'Just now';
+                    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+                    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+                    return `${Math.floor(seconds / 86400)} days ago`;
+                  };
+
+                  const getStatusColor = (status: string) => {
+                    switch (status) {
+                      case 'collected': return { color: 'bg-emerald-500', light: 'bg-emerald-100' };
+                      case 'empty': return { color: 'bg-blue-500', light: 'bg-blue-100' };
+                      case 'exception': return { color: 'bg-orange-500', light: 'bg-orange-100' };
+                      default: return { color: 'bg-gray-500', light: 'bg-gray-100' };
+                    }
+                  };
+
+                  const colors = getStatusColor(collection.status);
+
+                  return (
+                    <div 
+                      key={collection._id} 
+                      className="group flex items-start gap-4 p-5 bg-gradient-to-br from-gray-50 via-white to-gray-50 rounded-2xl hover:shadow-lg transition-all duration-300 border border-gray-100 animate-fadeIn"
+                      style={{ animationDelay: `${i * 150}ms` }}
+                    >
+                      <div className={`relative p-3 ${colors.light} rounded-2xl shadow-md group-hover:shadow-lg transition-all duration-300 group-hover:scale-110`}>
+                        <div className={`absolute inset-0 ${colors.color} opacity-0 group-hover:opacity-30 blur-xl transition-all duration-500 rounded-full`}></div>
+                        <Trash2 className={`h-6 w-6 relative z-10 ${colors.color.replace('bg-', 'text-')}`} />
+                      </div>
+                      <div className="flex-1 min-w-0 transform transition-transform duration-300 group-hover:translate-x-1">
+                        <p className="font-semibold text-gray-900 mb-1.5 text-lg">
+                          Bin {collection.bin?.binId || 'Unknown'} - {collection.status === 'collected' ? 'Collected' : collection.status === 'empty' ? 'Empty' : 'Exception Reported'}
+                        </p>
+                        <p className="text-sm text-gray-600 mb-3">
+                          Route: {collection.route?.routeName || 'N/A'} • Weight: {collection.wasteWeight || 0} kg
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 font-medium px-2.5 py-1 rounded-full bg-gray-100 w-fit">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>{getTimeAgo(collection.collectionDate)}</span>
+                        </div>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <ChevronRight className="h-5 w-5 text-gray-400" />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : user?.role === 'collector' ? (
+                <div className="text-center py-12">
+                  <Trash2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No recent collections</p>
+                  <p className="text-sm text-gray-400 mt-1">Start a route to record collections</p>
+                </div>
+              ) : (
+              [
                 { icon: Trash2, title: 'Waste collection completed', desc: 'Route #1 - Collected 45 bins', time: '2 hours ago', color: 'bg-emerald-500', colorLight: 'bg-emerald-100' },
                 { icon: Truck, title: 'Route assigned', desc: 'New route for tomorrow morning', time: '4 hours ago', color: 'bg-blue-500', colorLight: 'bg-blue-100' },
                 { icon: AlertCircle, title: 'Ticket resolved', desc: 'Missed collection issue fixed', time: '6 hours ago', color: 'bg-orange-500', colorLight: 'bg-orange-100' },
@@ -429,7 +547,8 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </div>
                 );
-              })}
+              })
+              )}
             </div>
           </div>
 

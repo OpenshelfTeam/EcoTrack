@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Layout } from '../components/Layout';
 import {
   MapPin, Truck, Plus, Search, Filter, Edit2, Trash2, Users,
@@ -8,7 +11,60 @@ import {
   Camera, QrCode, PlayCircle, Flag, Image, XCircle, ArrowRight
 } from 'lucide-react';
 import { routeService, type Route } from '../services/route.service';
+import { collectionService } from '../services/collection.service';
 import { useAuth } from '../contexts/AuthContext';
+
+// Map bounds setter component
+const MapBoundsSetter = ({ bins }: { bins: any[] }) => {
+  const map = useMap();
+  
+  if (bins && bins.length > 0) {
+    const bounds = bins
+      .filter(bin => bin.location?.coordinates)
+      .map(bin => [bin.location.coordinates[1], bin.location.coordinates[0]] as [number, number]);
+    
+    if (bounds.length > 0) {
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }
+  
+  return null;
+};
+
+// Create custom bin icons
+const createBinIcon = (isCollected: boolean, isCurrent: boolean, index: number) => {
+  const color = isCollected ? '#10b981' : isCurrent ? '#eab308' : '#3b82f6';
+  const label = isCollected ? '✓' : isCurrent ? '●' : (index + 1).toString();
+  
+  return L.divIcon({
+    className: 'custom-bin-marker',
+    html: `
+      <div style="
+        background-color: ${color};
+        width: 40px;
+        height: 40px;
+        border-radius: 50% 50% 50% 0;
+        border: 3px solid white;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: rotate(-45deg);
+        position: relative;
+      ">
+        <span style="
+          color: white;
+          font-weight: bold;
+          font-size: 14px;
+          transform: rotate(45deg);
+        ">${label}</span>
+      </div>
+    `,
+    iconSize: [40, 40],
+    iconAnchor: [12, 40],
+    popupAnchor: [8, -40]
+  });
+};
 
 export const RoutesPage = () => {
   const queryClient = useQueryClient();
@@ -55,10 +111,18 @@ export const RoutesPage = () => {
   });
 
   // Fetch route statistics
-  const { data: statsData } = useQuery({
+  const { data: statsData, error: statsError } = useQuery({
     queryKey: ['route-stats'],
-    queryFn: () => routeService.getRouteStats()
+    queryFn: () => routeService.getRouteStats(),
+    retry: false // Don't retry failed stats requests
   });
+
+  // Log stats errors silently without blocking UI
+  useEffect(() => {
+    if (statsError) {
+      console.error('[ROUTE STATS ERROR]:', (statsError as any).response?.data?.message || (statsError as Error).message);
+    }
+  }, [statsError]);
 
   // Create route mutation
   const createMutation = useMutation({
@@ -107,10 +171,15 @@ export const RoutesPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routes'] });
       queryClient.invalidateQueries({ queryKey: ['route-stats'] });
-      alert('Route started successfully!');
+      // Don't show alert, the map will open
     },
     onError: (error: any) => {
-      alert(error.response?.data?.message || 'Failed to start route');
+      const message = error.response?.data?.message || 'Failed to start route';
+      console.error('Route start error:', message);
+      // Only show alert for real errors, not "already started" cases
+      if (!message.includes('in progress') && !message.includes('already')) {
+        alert(message);
+      }
     }
   });
 
@@ -234,12 +303,23 @@ export const RoutesPage = () => {
   };
 
   // Collector workflow handlers
-  const handleStartCollectionRoute = (route: Route) => {
-    setActiveRoute(route);
-    setCurrentBinIndex(0);
-    setCollectedBins([]);
-    setViewMode('map');
-    startMutation.mutate(route._id);
+  const handleStartCollectionRoute = async (route: Route) => {
+    try {
+      // Set UI state immediately
+      setActiveRoute(route);
+      setCurrentBinIndex(0);
+      setCollectedBins([]);
+      setViewMode('map');
+      
+      // Try to start/continue the route
+      if (route.status === 'pending') {
+        await startMutation.mutateAsync(route._id);
+      }
+      // If already in-progress, just continue (no API call needed)
+    } catch (error) {
+      console.error('Error starting route:', error);
+      // Route is probably already in progress, continue anyway
+    }
   };
 
   const handleScanBin = (bin: any) => {
@@ -248,86 +328,144 @@ export const RoutesPage = () => {
     setShowBinStatusModal(true);
   };
 
-  const handleMarkBinStatus = (status: 'collected' | 'empty' | 'damaged') => {
+  const handleMarkBinStatus = async (status: 'collected' | 'empty' | 'damaged') => {
     if (!currentBin || !activeRoute) return;
 
-    const binData = {
-      binId: currentBin._id,
-      status,
-      timestamp: new Date().toISOString(),
-      location: currentBin.location
-    };
+    try {
+      // Record collection in database
+      await collectionService.recordBinCollection({
+        route: activeRoute._id,
+        bin: currentBin._id,
+        status: status === 'damaged' ? 'exception' : status,
+        binLevelBefore: currentBin.currentLevel || 0,
+        binLevelAfter: status === 'collected' ? 0 : currentBin.currentLevel || 0,
+        wasteWeight: status === 'collected' ? (currentBin.currentLevel || 0) * 0.5 : 0, // Estimate weight
+        notes: status === 'empty' ? 'Bin was empty during collection' : 
+               status === 'damaged' ? 'Bin marked as damaged' : 
+               'Successfully collected'
+      });
 
-    setCollectedBins([...collectedBins, binData]);
-    
-    // Send notification to bin owner and admins
-    const message = status === 'collected' 
-      ? `Your bin at ${currentBin.location?.address} has been collected.`
-      : status === 'empty'
-      ? `Your bin at ${currentBin.location?.address} was marked as empty.`
-      : `Your bin at ${currentBin.location?.address} is damaged and needs attention.`;
-    
-    alert(`Notification sent: ${message}`);
-    
-    setShowBinStatusModal(false);
-    setCurrentBin(null);
+      const binData = {
+        binId: currentBin._id,
+        status,
+        timestamp: new Date().toISOString(),
+        location: currentBin.location
+      };
 
-    // Move to next bin
-    if (currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
-      setCurrentBinIndex(currentBinIndex + 1);
+      setCollectedBins([...collectedBins, binData]);
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+      
+      // Send notification to bin owner and admins
+      const message = status === 'collected' 
+        ? `Your bin at ${currentBin.location?.address} has been collected.`
+        : status === 'empty'
+        ? `Your bin at ${currentBin.location?.address} was marked as empty.`
+        : `Your bin at ${currentBin.location?.address} is damaged and needs attention.`;
+      
+      console.log(`Notification sent: ${message}`);
+      
+      setShowBinStatusModal(false);
+      setCurrentBin(null);
+
+      // Move to next bin
+      if (currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
+        setCurrentBinIndex(currentBinIndex + 1);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to record bin collection');
     }
   };
 
-  const handleReportException = () => {
+  const handleReportException = async () => {
     if (!currentBin || !exceptionData.issueType) {
       alert('Please fill in all required fields');
       return;
     }
 
-    // Send exception report with photo and notes
-    const exceptionReport = {
-      binId: currentBin._id,
-      location: currentBin.location,
-      issueType: exceptionData.issueType,
-      notes: exceptionData.notes,
-      photo: exceptionData.photo,
-      timestamp: new Date().toISOString(),
-      reportedBy: 'Collector' // Would use actual user data
-    };
-
-    alert(`Exception reported for bin ${currentBin._id}. Notifications sent to bin owner and admins.`);
-    
-    setShowExceptionModal(false);
-    setShowBinStatusModal(false);
-    setCurrentBin(null);
-    setExceptionData({ issueType: '', notes: '', photo: null });
-
-    // Move to next bin
-    if (activeRoute && currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
-      setCurrentBinIndex(currentBinIndex + 1);
-    }
-  };
-
-  const handleCompleteCollectionRoute = () => {
     if (!activeRoute) return;
 
-    if (confirm(`Complete route "${activeRoute.routeName}"? ${collectedBins.length} bins processed.`)) {
-      completeMutation.mutate({
-        id: activeRoute._id,
-        data: {
-          collectedBins: collectedBins.length,
-          distance: 0, // Would calculate from GPS tracking
-          completedAt: new Date().toISOString()
+    try {
+      // Record exception in database
+      await collectionService.recordBinCollection({
+        route: activeRoute._id,
+        bin: currentBin._id,
+        status: 'exception',
+        binLevelBefore: currentBin.currentLevel || 0,
+        binLevelAfter: currentBin.currentLevel || 0,
+        notes: exceptionData.notes,
+        exception: {
+          issueType: exceptionData.issueType,
+          description: exceptionData.notes,
+          photo: exceptionData.photo || undefined
         }
       });
 
-      // Send completion notifications
-      alert(`Route completed! Notifications sent to all bin owners and admins.`);
+      const binData = {
+        binId: currentBin._id,
+        status: 'damaged' as const,
+        timestamp: new Date().toISOString(),
+        location: currentBin.location
+      };
+
+      setCollectedBins([...collectedBins, binData]);
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+
+      alert(`Exception reported for bin ${currentBin.binId || currentBin._id}. Notifications sent to bin owner and admins.`);
       
-      setActiveRoute(null);
-      setCurrentBinIndex(0);
-      setCollectedBins([]);
-      setViewMode('list');
+      setShowExceptionModal(false);
+      setShowBinStatusModal(false);
+      setCurrentBin(null);
+      setExceptionData({ issueType: '', notes: '', photo: null });
+
+      // Move to next bin
+      if (activeRoute && currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
+        setCurrentBinIndex(currentBinIndex + 1);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to report exception');
+    }
+  };
+
+  const handleCompleteCollectionRoute = async () => {
+    if (!activeRoute) return;
+
+    const collectedCount = collectedBins.filter(b => b.status === 'collected').length;
+    const emptyCount = collectedBins.filter(b => b.status === 'empty').length;
+    const damagedCount = collectedBins.filter(b => b.status === 'damaged').length;
+    const totalProcessed = collectedBins.length;
+    const totalBins = activeRoute.bins?.length || 0;
+
+    if (totalProcessed < totalBins) {
+      const remaining = totalBins - totalProcessed;
+      if (!confirm(`You have ${remaining} bin(s) remaining. Are you sure you want to complete the route?`)) {
+        return;
+      }
+    }
+
+    if (confirm(`Complete route "${activeRoute.routeName}"?\n\nSummary:\n✓ Collected: ${collectedCount}\n○ Empty: ${emptyCount}\n✗ Damaged: ${damagedCount}\n\nTotal: ${totalProcessed}/${totalBins} bins`)) {
+      try {
+        await completeMutation.mutateAsync({
+          id: activeRoute._id,
+          data: {
+            collectedBins: collectedCount,
+            distance: 0, // Would calculate from GPS tracking
+            completedAt: new Date().toISOString()
+          }
+        });
+
+        alert(`Route completed successfully!\n\nNotifications sent to all bin owners and admins.`);
+        
+        setActiveRoute(null);
+        setCurrentBinIndex(0);
+        setCollectedBins([]);
+        setViewMode('list');
+      } catch (error: any) {
+        alert(error.response?.data?.message || 'Failed to complete route');
+      }
     }
   };
 
@@ -473,12 +611,32 @@ export const RoutesPage = () => {
                   onChange={(e) => setFilterArea(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                 >
-                  <option value="all">All Areas</option>
-                  <option value="Downtown">Downtown</option>
-                  <option value="Suburbs">Suburbs</option>
-                  <option value="Industrial">Industrial</option>
-                  <option value="East Side">East Side</option>
-                  <option value="West End">West End</option>
+                  <option value="all">All Districts</option>
+                  <option value="Colombo">Colombo</option>
+                  <option value="Gampaha">Gampaha</option>
+                  <option value="Kalutara">Kalutara</option>
+                  <option value="Kandy">Kandy</option>
+                  <option value="Matale">Matale</option>
+                  <option value="Nuwara Eliya">Nuwara Eliya</option>
+                  <option value="Galle">Galle</option>
+                  <option value="Matara">Matara</option>
+                  <option value="Hambantota">Hambantota</option>
+                  <option value="Jaffna">Jaffna</option>
+                  <option value="Kilinochchi">Kilinochchi</option>
+                  <option value="Mannar">Mannar</option>
+                  <option value="Vavuniya">Vavuniya</option>
+                  <option value="Mullaitivu">Mullaitivu</option>
+                  <option value="Batticaloa">Batticaloa</option>
+                  <option value="Ampara">Ampara</option>
+                  <option value="Trincomalee">Trincomalee</option>
+                  <option value="Kurunegala">Kurunegala</option>
+                  <option value="Puttalam">Puttalam</option>
+                  <option value="Anuradhapura">Anuradhapura</option>
+                  <option value="Polonnaruwa">Polonnaruwa</option>
+                  <option value="Badulla">Badulla</option>
+                  <option value="Monaragala">Monaragala</option>
+                  <option value="Ratnapura">Ratnapura</option>
+                  <option value="Kegalle">Kegalle</option>
                 </select>
               </div>
             </div>
@@ -566,6 +724,15 @@ export const RoutesPage = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
+                      {(route.status === 'pending' || route.status === 'active' || route.status === 'in-progress') && (
+                        <button
+                          onClick={() => handleStartCollectionRoute(route)}
+                          className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all text-sm font-medium flex items-center gap-2 shadow-md hover:shadow-lg"
+                        >
+                          <PlayCircle className="w-4 h-4" />
+                          {route.status === 'in-progress' ? 'Continue Collection' : 'Start Collection'}
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setSelectedRoute(route);
@@ -630,55 +797,138 @@ export const RoutesPage = () => {
                       </button>
                     </div>
 
-                    {/* Map Display */}
-                    <div className="relative bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl overflow-hidden border-2 border-blue-100 mb-4" style={{ height: '500px' }}>
-                      <div className="absolute inset-0 grid grid-cols-3 gap-4 p-6">
-                        {activeRoute.bins?.map((bin: any, index: number) => {
-                          const isCollected = collectedBins.some(b => b.binId === bin._id);
-                          const isCurrent = index === currentBinIndex;
+                    {/* Real Interactive Map */}
+                    <div className="relative rounded-xl overflow-hidden border-2 border-blue-100 mb-4" style={{ height: '500px' }}>
+                      {activeRoute.bins && activeRoute.bins.length > 0 && activeRoute.bins[0].location?.coordinates ? (
+                        <MapContainer
+                          center={[
+                            activeRoute.bins[0].location.coordinates[1],
+                            activeRoute.bins[0].location.coordinates[0]
+                          ]}
+                          zoom={13}
+                          style={{ height: '100%', width: '100%' }}
+                          className="z-0"
+                        >
+                          <TileLayer
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          />
                           
-                          return (
-                            <button
-                              key={bin._id}
-                              onClick={() => {
-                                setCurrentBin(bin);
-                                setShowBinScanner(true);
-                              }}
-                              disabled={isCollected}
-                              className={`relative p-4 rounded-xl border-2 transition-all ${
-                                isCollected
-                                  ? 'bg-emerald-100 border-emerald-400 opacity-60'
-                                  : isCurrent
-                                  ? 'bg-yellow-100 border-yellow-400 shadow-lg animate-pulse'
-                                  : 'bg-white border-gray-300 hover:border-blue-400 hover:shadow-md'
-                              }`}
-                            >
-                              <div className="absolute -top-2 -right-2">
-                                {isCollected ? (
-                                  <CheckCircle className="w-6 h-6 text-emerald-600 bg-white rounded-full" />
-                                ) : isCurrent ? (
-                                  <div className="w-6 h-6 bg-yellow-500 rounded-full animate-ping" />
-                                ) : (
-                                  <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-xs font-bold text-white">
-                                    {index + 1}
+                          {/* Auto-fit bounds to show all bins */}
+                          <MapBoundsSetter bins={activeRoute.bins} />
+                          
+                          {/* Route path line connecting all bins with direction arrows */}
+                          {activeRoute.bins.length > 1 && (
+                            <>
+                              {/* Main route line */}
+                              <Polyline
+                                positions={activeRoute.bins
+                                  .filter((bin: any) => bin.location?.coordinates)
+                                  .map((bin: any) => [
+                                    bin.location.coordinates[1],
+                                    bin.location.coordinates[0]
+                                  ])}
+                                color="#3b82f6"
+                                weight={5}
+                                opacity={0.8}
+                              />
+                              {/* Dashed overlay for better visibility */}
+                              <Polyline
+                                positions={activeRoute.bins
+                                  .filter((bin: any) => bin.location?.coordinates)
+                                  .map((bin: any) => [
+                                    bin.location.coordinates[1],
+                                    bin.location.coordinates[0]
+                                  ])}
+                                color="#ffffff"
+                                weight={2}
+                                opacity={0.9}
+                                dashArray="10, 15"
+                              />
+                            </>
+                          )}
+                          
+                          {/* Bin markers */}
+                          {activeRoute.bins.map((bin: any, index: number) => {
+                            if (!bin.location?.coordinates) return null;
+                            
+                            const isCollected = collectedBins.some(b => b.binId === bin._id);
+                            const isCurrent = index === currentBinIndex;
+                            
+                            return (
+                              <Marker
+                                key={bin._id}
+                                position={[bin.location.coordinates[1], bin.location.coordinates[0]]}
+                                icon={createBinIcon(isCollected, isCurrent, index)}
+                                eventHandlers={{
+                                  click: () => {
+                                    setCurrentBin(bin);
+                                    setCurrentBinIndex(index);
+                                    setShowBinScanner(true);
+                                  }
+                                }}
+                              >
+                                <Popup>
+                                  <div className="text-sm">
+                                    <p className="font-bold text-gray-900 mb-1">
+                                      {bin.location.address || `Bin ${index + 1}`}
+                                    </p>
+                                    <p className="text-gray-600">Type: {bin.binType || 'General'}</p>
+                                    <p className="text-gray-600">Level: {bin.currentLevel || 0}%</p>
+                                    <p className="text-gray-600">ID: {bin.binId}</p>
+                                    {isCollected && (
+                                      <p className="text-emerald-600 font-medium mt-2">✓ Collected</p>
+                                    )}
+                                    {isCurrent && !isCollected && (
+                                      <p className="text-yellow-600 font-medium mt-2">● Current Bin</p>
+                                    )}
+                                    {!isCollected && !isCurrent && (
+                                      <button
+                                        onClick={() => {
+                                          setCurrentBin(bin);
+                                          setCurrentBinIndex(index);
+                                          setShowBinScanner(true);
+                                        }}
+                                        className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+                                      >
+                                        Collect Now
+                                      </button>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                              <MapPin className={`w-8 h-8 mx-auto mb-2 ${
-                                isCollected ? 'text-emerald-600' : isCurrent ? 'text-yellow-600' : 'text-gray-600'
-                              }`} />
-                              <p className="text-xs font-medium text-gray-900 truncate">{bin.location?.address || `Bin ${index + 1}`}</p>
-                              <p className="text-xs text-gray-500 mt-1">{bin.type || 'Standard'}</p>
-                            </button>
-                          );
-                        })}
-                      </div>
+                                </Popup>
+                              </Marker>
+                            );
+                          })}
+                        </MapContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center bg-gray-100">
+                          <p className="text-gray-500">No bin locations available</p>
+                        </div>
+                      )}
+                    </div>
 
-                      {/* Navigation overlay */}
-                      <div className="absolute bottom-4 right-4 space-y-2">
-                        <button className="p-3 bg-white rounded-xl shadow-lg hover:shadow-xl transition-all">
-                          <Navigation className="w-5 h-5 text-blue-600" />
-                        </button>
+                    {/* Map Legend */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Map Legend</h4>
+                      <div className="grid grid-cols-3 gap-4 text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-yellow-500 border-2 border-white shadow flex items-center justify-center text-white font-bold">●</div>
+                          <span className="text-gray-600">Current Bin</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-white shadow flex items-center justify-center text-white font-bold text-[10px]">2</div>
+                          <span className="text-gray-600">Next Bins</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-emerald-500 border-2 border-white shadow flex items-center justify-center text-white font-bold">✓</div>
+                          <span className="text-gray-600">Collected</span>
+                        </div>
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-gray-200">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 border-t-4 border-dashed border-blue-500"></div>
+                          <span className="text-gray-600 text-xs">Collection Route</span>
+                        </div>
                       </div>
                     </div>
 
@@ -716,6 +966,40 @@ export const RoutesPage = () => {
 
                 {/* Collection Actions Panel - 1 column */}
                 <div className="space-y-4">
+                  {/* Navigation Directions */}
+                  {activeRoute.bins && activeRoute.bins[currentBinIndex] && (
+                    <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl p-5 shadow-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Navigation className="w-6 h-6" />
+                        <div className="flex-1">
+                          <p className="text-xs opacity-90">Navigate to</p>
+                          <p className="font-bold text-lg">Bin #{currentBinIndex + 1} of {activeRoute.bins.length}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold">{currentBinIndex < activeRoute.bins.length - 1 ? '→' : '🏁'}</p>
+                        </div>
+                      </div>
+                      <div className="bg-white/20 backdrop-blur rounded-lg p-3 mb-3">
+                        <p className="text-sm font-medium mb-1">
+                          📍 {activeRoute.bins[currentBinIndex].location?.address || `Bin ${currentBinIndex + 1}`}
+                        </p>
+                        <p className="text-xs opacity-90">
+                          ID: {activeRoute.bins[currentBinIndex].binId} • {activeRoute.bins[currentBinIndex].binType || 'General'}
+                        </p>
+                      </div>
+                      {currentBinIndex < activeRoute.bins.length - 1 && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <div className="bg-white/20 rounded-full p-1">
+                            <ArrowRight className="w-4 h-4" />
+                          </div>
+                          <p className="opacity-90">
+                            Next: {activeRoute.bins[currentBinIndex + 1].location?.address?.split(',')[0] || `Bin ${currentBinIndex + 2}`}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Current Bin Info */}
                   {activeRoute.bins && activeRoute.bins[currentBinIndex] && (
                     <div className="bg-white rounded-xl border-2 border-blue-200 p-6">
@@ -724,19 +1008,19 @@ export const RoutesPage = () => {
                           <MapPin className="w-5 h-5 text-blue-600" />
                         </div>
                         <div className="flex-1">
-                          <p className="text-sm text-gray-600">Next Bin</p>
-                          <p className="font-bold text-gray-900">{activeRoute.bins[currentBinIndex].location?.address || `Bin ${currentBinIndex + 1}`}</p>
+                          <p className="text-sm text-gray-600">Current Bin Details</p>
+                          <p className="font-bold text-gray-900">{activeRoute.bins[currentBinIndex].binId}</p>
                         </div>
                       </div>
                       
-                      <div className="space-y-2 text-sm text-gray-600">
+                      <div className="space-y-2 text-sm text-gray-600 mb-4">
                         <div className="flex items-center gap-2">
                           <Truck className="w-4 h-4" />
-                          <span>Type: {activeRoute.bins[currentBinIndex].type || 'Standard'}</span>
+                          <span>Fill Level: {activeRoute.bins[currentBinIndex].currentLevel || 0}%</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Navigation className="w-4 h-4" />
-                          <span>Distance: 0.5 km</span>
+                          <MapPin className="w-4 h-4" />
+                          <span className="text-xs">{activeRoute.bins[currentBinIndex].location?.address || 'Location'}</span>
                         </div>
                       </div>
 
@@ -810,7 +1094,7 @@ export const RoutesPage = () => {
                   <p className="text-gray-600 mb-8">Select a route below to begin waste collection with interactive map guidance</p>
                   
                   <div className="space-y-4">
-                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active').map((route: any) => (
+                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active' || r.status === 'in-progress').map((route: any) => (
                       <button
                         key={route._id}
                         onClick={() => handleStartCollectionRoute(route)}
@@ -841,7 +1125,7 @@ export const RoutesPage = () => {
                         </div>
                       </button>
                     ))}
-                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active').length === 0 && (
+                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active' || r.status === 'in-progress').length === 0 && (
                       <p className="text-gray-500 py-8">No active routes available to start</p>
                     )}
                   </div>
@@ -903,18 +1187,38 @@ export const RoutesPage = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Area *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">District *</label>
                   <select
                     value={newRoute.area}
                     onChange={(e) => setNewRoute({ ...newRoute, area: e.target.value })}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   >
-                    <option value="">Select Area</option>
-                    <option value="Downtown">Downtown</option>
-                    <option value="Suburbs">Suburbs</option>
-                    <option value="Industrial">Industrial</option>
-                    <option value="East Side">East Side</option>
-                    <option value="West End">West End</option>
+                    <option value="">Select District</option>
+                    <option value="Colombo">Colombo</option>
+                    <option value="Gampaha">Gampaha</option>
+                    <option value="Kalutara">Kalutara</option>
+                    <option value="Kandy">Kandy</option>
+                    <option value="Matale">Matale</option>
+                    <option value="Nuwara Eliya">Nuwara Eliya</option>
+                    <option value="Galle">Galle</option>
+                    <option value="Matara">Matara</option>
+                    <option value="Hambantota">Hambantota</option>
+                    <option value="Jaffna">Jaffna</option>
+                    <option value="Kilinochchi">Kilinochchi</option>
+                    <option value="Mannar">Mannar</option>
+                    <option value="Vavuniya">Vavuniya</option>
+                    <option value="Mullaitivu">Mullaitivu</option>
+                    <option value="Batticaloa">Batticaloa</option>
+                    <option value="Ampara">Ampara</option>
+                    <option value="Trincomalee">Trincomalee</option>
+                    <option value="Kurunegala">Kurunegala</option>
+                    <option value="Puttalam">Puttalam</option>
+                    <option value="Anuradhapura">Anuradhapura</option>
+                    <option value="Polonnaruwa">Polonnaruwa</option>
+                    <option value="Badulla">Badulla</option>
+                    <option value="Monaragala">Monaragala</option>
+                    <option value="Ratnapura">Ratnapura</option>
+                    <option value="Kegalle">Kegalle</option>
                   </select>
                 </div>
 

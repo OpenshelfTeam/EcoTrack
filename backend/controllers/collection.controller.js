@@ -114,7 +114,10 @@ export const createCollectionRecord = async (req, res) => {
       status,
       notes,
       verificationCode,
-      location
+      location,
+      exceptionReported,
+      exceptionReason,
+      exceptionDescription
     } = req.body;
 
     const route = await Route.findById(routeId);
@@ -122,16 +125,25 @@ export const createCollectionRecord = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Route not found' });
     }
 
-    const bin = await SmartBin.findById(binId).populate('assignedTo');
+    const bin = await SmartBin.findById(binId).populate('createdBy');
     if (!bin) {
       return res.status(404).json({ success: false, message: 'Bin not found' });
     }
+
+    // Prepare exception data if reported
+    const exceptionData = exceptionReported === 'true' || exceptionReported === true ? {
+      reported: true,
+      reason: exceptionReason || 'Unknown',
+      description: exceptionDescription || '',
+    } : {
+      reported: false
+    };
 
     const record = await CollectionRecord.create({
       route: routeId,
       bin: binId,
       collector: req.user._id,
-      resident: bin.assignedTo ? bin.assignedTo._id : null,
+      resident: bin.createdBy ? bin.createdBy._id : null,
       collectionDate: new Date(),
       wasteWeight: wasteWeight || 0,
       wasteType: wasteType || bin.binType,
@@ -140,9 +152,11 @@ export const createCollectionRecord = async (req, res) => {
       status: status || 'collected',
       location: location || bin.location,
       notes,
-      verificationCode
+      verificationCode,
+      exception: exceptionData
     });
 
+    // Update bin status based on collection type
     if (status === 'collected') {
       bin.currentLevel = binLevelAfter !== undefined ? binLevelAfter : 0;
       bin.lastEmptied = new Date();
@@ -150,6 +164,10 @@ export const createCollectionRecord = async (req, res) => {
       
       route.collectedBins = (route.collectedBins || 0) + 1;
       await route.save();
+    } else if (status === 'exception') {
+      // Mark bin as needing attention
+      bin.status = 'maintenance-required';
+      await bin.save();
     }
 
     const populatedRecord = await CollectionRecord.findById(record._id)

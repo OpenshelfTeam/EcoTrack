@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Trash2, Plus, Search, Filter, MapPin, Edit, Trash,
   CheckCircle, AlertCircle, Clock, Map, List, X, Loader2
@@ -23,6 +24,7 @@ interface Bin {
 type ViewMode = 'list' | 'grid' | 'map';
 
 export const BinsPage = () => {
+  const { user } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -41,6 +43,7 @@ export const BinsPage = () => {
       search: searchTerm,
       status: filterStatus !== 'all' ? filterStatus : undefined,
       wasteType: filterType !== 'all' ? filterType : undefined,
+      limit: 1000, // Get up to 1000 bins to show all
     }),
   });
 
@@ -281,9 +284,14 @@ export const BinsPage = () => {
               <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white">
                 <Trash2 className="w-7 h-7" />
               </div>
-              Waste Bins Management
+              {user?.role === 'resident' ? 'My Waste Bins' : 'Waste Bins Management'}
             </h1>
-            <p className="text-gray-600 mt-1">Monitor and manage all waste collection bins</p>
+            <p className="text-gray-600 mt-1">
+              {user?.role === 'resident' 
+                ? 'Register and manage your household waste bins'
+                : 'Monitor and manage all waste collection bins'
+              }
+            </p>
           </div>
           <button
             onClick={() => setShowAddModal(true)}

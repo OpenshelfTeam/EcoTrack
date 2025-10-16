@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { useAuth } from '../contexts/AuthContext';
 import {
   MapPin, Truck, CheckCircle, AlertCircle, X,
   Map as MapIcon, Loader2, Trash2, Search, SlidersHorizontal,
@@ -91,6 +92,8 @@ const MapBoundsSetter = ({ bins }: { bins: SmartBin[] }) => {
 };
 
 export const MapPage = () => {
+  const { user } = useAuth();
+  
   // Filter states
   const [capacityFilter, setCapacityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -102,7 +105,7 @@ export const MapPage = () => {
   // Fetch all bins with auto-refresh capabilities
   const { data: binsData, isLoading: loadingBins, error: binsError, refetch } = useQuery({
     queryKey: ['bins'],
-    queryFn: () => binService.getAllBins({}),
+    queryFn: () => binService.getAllBins({ view: 'map', limit: 1000 }), // Get all bins for map view
     refetchOnWindowFocus: true, // Auto-refetch when user returns to tab
     refetchInterval: 30000, // Auto-refetch every 30 seconds
     staleTime: 10000, // Consider data stale after 10 seconds
@@ -173,10 +176,13 @@ export const MapPage = () => {
               <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl text-white">
                 <MapIcon className="w-7 h-7" />
               </div>
-              Bin Location Map
+              {user?.role === 'resident' ? 'My Bins Map' : 'Bin Location Map'}
             </h1>
             <p className="text-gray-600 mt-1">
-              Real-time waste bin monitoring and collection planning • Auto-updates every 30s
+              {user?.role === 'resident' 
+                ? 'Track your registered waste bins and collection status • Auto-updates every 30s'
+                : 'Real-time waste bin monitoring and collection planning • Auto-updates every 30s'
+              }
             </p>
           </div>
 
@@ -442,19 +448,36 @@ export const MapPage = () => {
               </MapContainer>
             ) : (
               <div className="flex items-center justify-center h-full bg-gray-50">
-                <div className="text-center">
+                <div className="text-center max-w-md">
                   <MapIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium">No bins found matching your filters</p>
-                  <button
-                    onClick={() => {
-                      setCapacityFilter('all');
-                      setStatusFilter('all');
-                      setSearchTerm('');
-                    }}
-                    className="mt-4 px-6 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
-                  >
-                    Reset Filters
-                  </button>
+                  {user?.role === 'resident' ? (
+                    <>
+                      <p className="text-gray-900 font-semibold text-lg mb-2">No Bins Registered Yet</p>
+                      <p className="text-gray-600 mb-4">
+                        You haven't registered any waste bins yet. Add your first bin to start tracking waste collection.
+                      </p>
+                      <a
+                        href="/bins"
+                        className="inline-block px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all shadow-lg"
+                      >
+                        Add Your First Bin
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-gray-600 font-medium">No bins found matching your filters</p>
+                      <button
+                        onClick={() => {
+                          setCapacityFilter('all');
+                          setStatusFilter('all');
+                          setSearchTerm('');
+                        }}
+                        className="mt-4 px-6 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+                      >
+                        Reset Filters
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

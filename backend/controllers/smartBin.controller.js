@@ -23,6 +23,13 @@ export const getSmartBins = async (req, res) => {
     // Build filter query
     const filter = {};
 
+    // Role-based filtering: Residents only see their own bins
+    if (req.user.role === 'resident') {
+      filter.createdBy = req.user.id;
+    }
+    // Collectors, Operators, Admins, and Authorities see all bins
+    // (no additional filter needed)
+
     if (status) {
       if (status.includes(',')) {
         filter.status = { $in: status.split(',') };
@@ -62,7 +69,8 @@ export const getSmartBins = async (req, res) => {
     if (view === 'map') {
       const bins = await SmartBin.find(filter)
         .populate('assignedTo', 'firstName lastName email phone')
-        .select('binId location currentLevel status binType')
+        .populate('createdBy', 'firstName lastName email')
+        .select('binId location currentLevel capacity status binType createdBy')
         .lean();
 
       return res.status(200).json({
@@ -77,6 +85,7 @@ export const getSmartBins = async (req, res) => {
     const [bins, total] = await Promise.all([
       SmartBin.find(filter)
         .populate('assignedTo', 'firstName lastName email phone')
+        .populate('createdBy', 'firstName lastName email')
         .populate('maintenanceHistory.performedBy', 'firstName lastName')
         .sort(sortBy)
         .skip(skip)
@@ -131,7 +140,13 @@ export const getSmartBin = async (req, res) => {
 // @access  Private (Resident, Collector, Operator, Admin)
 export const createSmartBin = async (req, res) => {
   try {
-    const bin = await SmartBin.create(req.body);
+    // Automatically set createdBy to the current user
+    const binData = {
+      ...req.body,
+      createdBy: req.user.id
+    };
+
+    const bin = await SmartBin.create(binData);
 
     // Get the user who created the bin
     const creator = await User.findById(req.user.id);
