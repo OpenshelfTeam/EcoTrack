@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   BarChart3,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -60,6 +61,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       return [
         ...baseItems,
         { name: 'Analytics', icon: BarChart3, path: '/analytics' },
+        { name: 'Users', icon: Users, path: '/users' },
+        { name: 'Payments', icon: CreditCard, path: '/payments' },
+        { name: 'Notifications', icon: Bell, path: '/notifications' },
         { name: 'Tickets', icon: Ticket, path: '/tickets' },
         { name: 'Collections', icon: Truck, path: '/collections' },
         { name: 'Bins', icon: Trash2, path: '/bins' },

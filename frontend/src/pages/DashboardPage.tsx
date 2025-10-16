@@ -3,16 +3,17 @@ import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '../services/analytics.service';
+import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Truck, AlertCircle, DollarSign, TrendingUp, ArrowUp, 
   ArrowDown, Clock, Calendar, MapPin, Bell, BarChart3,
-  ChevronRight, CheckCircle, Users, Map, Leaf
+  ChevronRight, CheckCircle, Users, Map, Leaf, Shield, UserCog
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [animation, setAnimation] = useState(false);
 
   // Fetch dashboard statistics
   const { data: dashboardData, isLoading: statsLoading } = useQuery({
@@ -51,19 +52,6 @@ export const DashboardPage: React.FC = () => {
     }, 60000);
     return () => clearInterval(timer);
   }, []);
-
-  // Initial loading animation
-  useEffect(() => {
-    setAnimation(true);
-  }, []);
-
-  // Format date for header
-  const formattedDate = currentTime.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric'
-  });
 
   // Enhanced stat card with animations and 3D effects
   const StatCard = ({ icon: Icon, title, value, subtitle, color, trend, bgGradient, delay = 0 }: any) => (
@@ -498,14 +486,15 @@ export const DashboardPage: React.FC = () => {
               })}
 
               {(user?.role === 'authority' || user?.role === 'operator' || user?.role === 'admin') && [
-                { icon: BarChart3, label: 'View Analytics', color: 'from-purple-500 to-pink-600', desc: 'Review system performance metrics' },
-                { icon: AlertCircle, label: 'Manage Tickets', color: 'from-orange-500 to-red-600', desc: 'Handle resident complaints & issues' },
-                { icon: Trash2, label: 'Monitor Bins', color: 'from-emerald-500 to-teal-600', desc: 'Check bin status & locations' },
+                { icon: BarChart3, label: 'View Analytics', color: 'from-purple-500 to-pink-600', desc: 'Review system performance metrics', path: '/analytics' },
+                { icon: AlertCircle, label: 'Manage Tickets', color: 'from-orange-500 to-red-600', desc: 'Handle resident complaints & issues', path: '/tickets' },
+                { icon: Trash2, label: 'Monitor Bins', color: 'from-emerald-500 to-teal-600', desc: 'Check bin status & locations', path: '/bins' },
               ].map((action, i) => {
                 const Icon = action.icon;
                 return (
                   <button
                     key={i}
+                    onClick={() => navigate(action.path)}
                     className={`group w-full flex items-center gap-4 p-5 bg-gradient-to-r ${action.color} text-white rounded-2xl hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3)] transition-all duration-500 transform hover:translate-y-[-2px] hover:scale-[1.01] relative overflow-hidden animate-fadeIn`}
                     style={{ animationDelay: `${i * 150}ms` }}
                   >
@@ -524,6 +513,103 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* User Management Section - Admin Only */}
+        {(user?.role === 'admin' || user?.role === 'operator') && (
+          <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-3xl shadow-xl p-8 border border-indigo-100 hover:shadow-2xl transition-all duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl text-white shadow-lg">
+                    <UserCog className="h-6 w-6" />
+                  </div>
+                  User Management
+                </h2>
+                <p className="text-gray-600 mt-2">Manage system users, roles, and permissions</p>
+              </div>
+              <button
+                onClick={() => navigate('/users')}
+                className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                Manage Users
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-xl">
+                    <Users className="h-7 w-7 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">Total Users</p>
+                    <p className="text-3xl font-bold text-gray-900">{stats.users?.total || 0}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full" style={{ width: '100%' }}></div>
+                  </div>
+                  <span className="text-xs font-medium text-gray-600">All roles</span>
+                </div>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-xl">
+                    <CheckCircle className="h-7 w-7 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">Active Users</p>
+                    <p className="text-3xl font-bold text-gray-900">{(stats.users?.total || 0) - (stats.users?.inactive || 0)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-2 rounded-full" style={{ width: `${((stats.users?.total || 0) - (stats.users?.inactive || 0)) / (stats.users?.total || 1) * 100}%` }}></div>
+                  </div>
+                  <span className="text-xs font-medium text-gray-600">{Math.round(((stats.users?.total || 0) - (stats.users?.inactive || 0)) / (stats.users?.total || 1) * 100)}%</span>
+                </div>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl">
+                    <Shield className="h-7 w-7 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">New This Month</p>
+                    <p className="text-3xl font-bold text-gray-900">+{Math.abs(stats.users?.change || 0)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <ArrowUp className="h-4 w-4 text-emerald-600" />
+                  <span className="text-xs font-medium text-emerald-600">{stats.users?.change || 0}% growth</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.admins || 0}</p>
+                <p className="text-sm text-purple-100">Admins</p>
+              </div>
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.collectors || 0}</p>
+                <p className="text-sm text-blue-100">Collectors</p>
+              </div>
+              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.residents || 0}</p>
+                <p className="text-sm text-emerald-100">Residents</p>
+              </div>
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.operators || 0}</p>
+                <p className="text-sm text-orange-100">Operators</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

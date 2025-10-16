@@ -14,7 +14,7 @@ export const getDashboardStats = async (req, res) => {
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
     // Current period stats
-    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, currentMonthCollections, lastMonthCollections, totalPickups, pendingPickups, currentMonthPickups, lastMonthPickups, totalTickets, openTickets, currentMonthTickets, lastMonthTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers, lastMonthUsers] = await Promise.all([
+    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, currentMonthCollections, lastMonthCollections, totalPickups, pendingPickups, currentMonthPickups, lastMonthPickups, totalTickets, openTickets, currentMonthTickets, lastMonthTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers, lastMonthUsers, usersByRole] = await Promise.all([
       SmartBin.countDocuments(),
       SmartBin.countDocuments({ status: 'active' }),
       SmartBin.countDocuments({ fillLevel: { $gte: 80 }, status: 'active' }),
@@ -34,7 +34,8 @@ export const getDashboardStats = async (req, res) => {
       Payment.aggregate([{ $match: { status: 'completed', createdAt: { $gte: startOfCurrentMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
       Route.countDocuments({ status: 'active' }),
       User.countDocuments(),
-      User.countDocuments({ createdAt: { $lte: endOfLastMonth } })
+      User.countDocuments({ createdAt: { $lte: endOfLastMonth } }),
+      User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }])
     ]);
 
     // Calculate percentage changes
@@ -50,6 +51,23 @@ export const getDashboardStats = async (req, res) => {
     const revenueChange = calculateChange(monthlyRevenue[0]?.total || 0, 0); // Would need last month revenue
     const usersChange = calculateChange(totalUsers, lastMonthUsers);
 
+    // Parse user role counts
+    const roleBreakdown = {
+      admins: 0,
+      collectors: 0,
+      residents: 0,
+      operators: 0,
+      authorities: 0
+    };
+
+    usersByRole.forEach(role => {
+      if (role._id === 'admin') roleBreakdown.admins = role.count;
+      else if (role._id === 'collector') roleBreakdown.collectors = role.count;
+      else if (role._id === 'resident') roleBreakdown.residents = role.count;
+      else if (role._id === 'operator') roleBreakdown.operators = role.count;
+      else if (role._id === 'authority') roleBreakdown.authorities = role.count;
+    });
+
     res.json({ 
       success: true, 
       data: { 
@@ -59,7 +77,11 @@ export const getDashboardStats = async (req, res) => {
         tickets: { total: totalTickets, open: openTickets, change: ticketsChange }, 
         revenue: { total: totalRevenue[0]?.total || 0, monthly: monthlyRevenue[0]?.total || 0, change: revenueChange }, 
         routes: { active: activeRoutes }, 
-        users: { total: totalUsers, change: usersChange } 
+        users: { 
+          total: totalUsers, 
+          change: usersChange,
+          ...roleBreakdown
+        } 
       } 
     });
   } catch (error) {
