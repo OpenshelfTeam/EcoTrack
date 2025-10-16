@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
+import { useQuery } from '@tanstack/react-query';
+import { analyticsService } from '../services/analytics.service';
 import { 
   Trash2, Truck, AlertCircle, DollarSign, TrendingUp, ArrowUp, 
   ArrowDown, Clock, Calendar, MapPin, Bell, BarChart3,
@@ -11,6 +13,36 @@ export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [animation, setAnimation] = useState(false);
+
+  // Fetch dashboard statistics
+  const { data: dashboardData, isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => analyticsService.getDashboardStats(),
+    refetchInterval: 60000, // Refetch every minute
+  });
+
+  const stats = dashboardData?.data || {
+    bins: { total: 0, active: 0, needingCollection: 0, change: 0 },
+    collections: { total: 0, today: 0, change: 0 },
+    pickups: { total: 0, pending: 0, change: 0 },
+    tickets: { total: 0, open: 0, change: 0 },
+    revenue: { total: 0, monthly: 0, change: 0 },
+    routes: { active: 0 },
+    users: { total: 0, change: 0 }
+  };
+
+  // Fetch efficiency metrics
+  const { data: efficiencyData } = useQuery({
+    queryKey: ['efficiency-metrics'],
+    queryFn: () => analyticsService.getEfficiencyMetrics(),
+    refetchInterval: 300000, // Refetch every 5 minutes
+  });
+
+  const efficiency = efficiencyData?.data || {
+    routeEfficiency: {},
+    collectorPerformance: [],
+    binUtilization: []
+  };
 
   // Update time every minute
   useEffect(() => {
@@ -195,140 +227,164 @@ export const DashboardPage: React.FC = () => {
         
         {/* Stats Grid - Resident */}
         {user?.role === 'resident' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Trash2}
-              title="Active Bins"
-              value="2"
-              subtitle="All bins assigned"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={0}
-              delay={100}
-            />
-            <StatCard
-              icon={Truck}
-              title="Next Pickup"
-              value="Tomorrow"
-              subtitle="10:00 AM - 12:00 PM"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={null}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Open Tickets"
-              value="1"
-              subtitle="View details"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={null}
-              delay={300}
-            />
-            <StatCard
-              icon={DollarSign}
-              title="Payment Due"
-              value="$25"
-              subtitle="Due in 5 days"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={null}
-              delay={400}
-            />
-          </div>
+          statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Trash2}
+                title="Active Bins"
+                value={stats.bins?.active?.toLocaleString() || '0'}
+                subtitle="All bins assigned"
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={0}
+                delay={100}
+              />
+              <StatCard
+                icon={Truck}
+                title="Next Pickup"
+                value={stats.pickups?.pending > 0 ? 'Scheduled' : 'None'}
+                subtitle={stats.pickups?.pending > 0 ? `${stats.pickups.pending} pending` : 'No pickups scheduled'}
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={null}
+                delay={200}
+              />
+              <StatCard
+                icon={AlertCircle}
+                title="Open Tickets"
+                value={stats.tickets?.open?.toLocaleString() || '0'}
+                subtitle="View details"
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={null}
+                delay={300}
+              />
+              <StatCard
+                icon={DollarSign}
+                title="Total Payments"
+                value={`$${stats.revenue?.monthly || 0}`}
+                subtitle="This month"
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={null}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Stats Grid - Collector */}
         {user?.role === 'collector' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Truck}
-              title="Routes Today"
-              value="3"
-              subtitle="2 completed"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={null}
-              delay={100}
-            />
-            <StatCard
-              icon={Trash2}
-              title="Collections"
-              value="45"
-              subtitle="Today"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={12}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Exceptions"
-              value="2"
-              subtitle="Need attention"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={-25}
-              delay={300}
-            />
-            <StatCard
-              icon={TrendingUp}
-              title="Completion"
-              value="89%"
-              subtitle="This week"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={5}
-              delay={400}
-            />
-          </div>
+          statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Truck}
+                title="Active Routes"
+                value={stats.routes?.active?.toLocaleString() || '0'}
+                subtitle="Assigned to you"
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={null}
+                delay={100}
+              />
+              <StatCard
+                icon={Trash2}
+                title="Collections"
+                value={stats.collections?.today?.toLocaleString() || '0'}
+                subtitle="Today"
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={stats.collections?.change || 0}
+                delay={200}
+              />
+              <StatCard
+                icon={AlertCircle}
+                title="Pending Issues"
+                value={stats.tickets?.open?.toLocaleString() || '0'}
+                subtitle="Need attention"
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={stats.tickets?.change || 0}
+                delay={300}
+              />
+              <StatCard
+                icon={TrendingUp}
+                title="Completion"
+                value={`${Math.round(efficiency.routeEfficiency?.completionRate || 0)}%`}
+                subtitle="This week"
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={5}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Stats Grid - Authority/Operator */}
         {(user?.role === 'authority' || user?.role === 'operator' || user?.role === 'admin') && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Trash2}
-              title="Total Bins"
-              value="450"
-              subtitle="405 active"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={3}
-              delay={100}
-            />
-            <StatCard
-              icon={Truck}
-              title="Collections"
-              value="128"
-              subtitle="Today"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={8}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Open Tickets"
-              value="15"
-              subtitle="5 high priority"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={-10}
-              delay={300}
-            />
-            <StatCard
-              icon={TrendingUp}
-              title="Efficiency"
-              value="94%"
-              subtitle="+2% from last week"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={2}
-              delay={400}
-            />
-          </div>
+          statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Trash2}
+                title="Total Bins"
+                value={stats.bins?.total?.toLocaleString() || '0'}
+                subtitle={`${stats.bins?.active || 0} active`}
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={stats.bins?.change || 0}
+                delay={100}
+              />
+              <StatCard
+                icon={Truck}
+                title="Collections"
+                value={stats.collections?.today?.toLocaleString() || '0'}
+                subtitle="Today"
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={stats.collections?.change || 0}
+                delay={200}
+              />
+              <StatCard
+                icon={AlertCircle}
+                title="Open Tickets"
+                value={stats.tickets?.open?.toLocaleString() || '0'}
+                subtitle={`${stats.tickets?.total || 0} total tickets`}
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={stats.tickets?.change || 0}
+                delay={300}
+              />
+              <StatCard
+                icon={TrendingUp}
+                title="Efficiency"
+                value={`${Math.round(efficiency.routeEfficiency?.completionRate || 0)}%`}
+                subtitle="Route completion rate"
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={2}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Recent Activity & Quick Actions */}

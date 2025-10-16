@@ -8,22 +8,60 @@ import User from '../models/User.model.js';
 
 export const getDashboardStats = async (req, res) => {
   try {
-    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, totalPickups, pendingPickups, totalTickets, openTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers] = await Promise.all([
+    const now = new Date();
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+    // Current period stats
+    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, currentMonthCollections, lastMonthCollections, totalPickups, pendingPickups, currentMonthPickups, lastMonthPickups, totalTickets, openTickets, currentMonthTickets, lastMonthTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers, lastMonthUsers] = await Promise.all([
       SmartBin.countDocuments(),
       SmartBin.countDocuments({ status: 'active' }),
       SmartBin.countDocuments({ fillLevel: { $gte: 80 }, status: 'active' }),
       CollectionRecord.countDocuments(),
-      CollectionRecord.countDocuments({ collectionDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)), $lt: new Date(new Date().setHours(23, 59, 59, 999)) } }),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: new Date(now.setHours(0, 0, 0, 0)), $lt: new Date(now.setHours(23, 59, 59, 999)) } }),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: startOfCurrentMonth } }),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
       PickupRequest.countDocuments(),
       PickupRequest.countDocuments({ status: 'pending' }),
+      PickupRequest.countDocuments({ createdAt: { $gte: startOfCurrentMonth } }),
+      PickupRequest.countDocuments({ createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
       Ticket.countDocuments(),
       Ticket.countDocuments({ status: { $in: ['open', 'in-progress'] } }),
+      Ticket.countDocuments({ createdAt: { $gte: startOfCurrentMonth } }),
+      Ticket.countDocuments({ createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
       Payment.aggregate([{ $match: { status: 'completed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Payment.aggregate([{ $match: { status: 'completed', createdAt: { $gte: new Date(new Date().setDate(1)) } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      Payment.aggregate([{ $match: { status: 'completed', createdAt: { $gte: startOfCurrentMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
       Route.countDocuments({ status: 'active' }),
-      User.countDocuments()
+      User.countDocuments(),
+      User.countDocuments({ createdAt: { $lte: endOfLastMonth } })
     ]);
-    res.json({ success: true, data: { bins: { total: totalBins, active: activeBins, needingCollection: binsNeedingCollection }, collections: { total: totalCollections, today: todayCollections }, pickups: { total: totalPickups, pending: pendingPickups }, tickets: { total: totalTickets, open: openTickets }, revenue: { total: totalRevenue[0]?.total || 0, monthly: monthlyRevenue[0]?.total || 0 }, routes: { active: activeRoutes }, users: { total: totalUsers } } });
+
+    // Calculate percentage changes
+    const calculateChange = (current, previous) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Number((((current - previous) / previous) * 100).toFixed(1));
+    };
+
+    const binsChange = 0; // Bins don't change frequently, keep at 0 or calculate from creation dates
+    const collectionsChange = calculateChange(currentMonthCollections, lastMonthCollections);
+    const pickupsChange = calculateChange(currentMonthPickups, lastMonthPickups);
+    const ticketsChange = calculateChange(currentMonthTickets, lastMonthTickets);
+    const revenueChange = calculateChange(monthlyRevenue[0]?.total || 0, 0); // Would need last month revenue
+    const usersChange = calculateChange(totalUsers, lastMonthUsers);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        bins: { total: totalBins, active: activeBins, needingCollection: binsNeedingCollection, change: binsChange }, 
+        collections: { total: totalCollections, today: todayCollections, change: collectionsChange }, 
+        pickups: { total: totalPickups, pending: pendingPickups, change: pickupsChange }, 
+        tickets: { total: totalTickets, open: openTickets, change: ticketsChange }, 
+        revenue: { total: totalRevenue[0]?.total || 0, monthly: monthlyRevenue[0]?.total || 0, change: revenueChange }, 
+        routes: { active: activeRoutes }, 
+        users: { total: totalUsers, change: usersChange } 
+      } 
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error fetching dashboard statistics', error: error.message });
   }

@@ -153,10 +153,37 @@ export const getTicket = async (req, res) => {
 // @desc    Create ticket
 // @route   POST /api/tickets
 // @access  Private
+// @desc    Create new ticket
+// @route   POST /api/tickets
+// @access  Private
 export const createTicket = async (req, res) => {
   try {
+    // Generate unique ticket number
+    const generateTicketNumber = async () => {
+      const prefix = 'TKT';
+      const date = new Date();
+      const year = date.getFullYear().toString().slice(-2);
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      
+      // Find the last ticket number for today
+      const lastTicket = await Ticket.findOne({
+        ticketNumber: new RegExp(`^${prefix}${year}${month}`)
+      }).sort({ ticketNumber: -1 });
+
+      let sequence = 1;
+      if (lastTicket) {
+        const lastSequence = parseInt(lastTicket.ticketNumber.slice(-4));
+        sequence = lastSequence + 1;
+      }
+
+      return `${prefix}${year}${month}${sequence.toString().padStart(4, '0')}`;
+    };
+
+    const ticketNumber = await generateTicketNumber();
+
     const ticketData = {
       ...req.body,
+      ticketNumber,
       reporter: req.user._id,
       statusHistory: [{
         status: 'open',
@@ -178,7 +205,7 @@ export const createTicket = async (req, res) => {
       message: error.message
     });
   }
-};
+};;
 
 // @desc    Update ticket
 // @route   PUT /api/tickets/:id
