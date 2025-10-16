@@ -35,7 +35,7 @@ export interface Comment {
     firstName: string;
     lastName: string;
   };
-  comment: string;
+  message: string;
   createdAt: Date;
 }
 
@@ -81,7 +81,7 @@ export const ticketService = {
   },
 
   async addComment(id: string, comment: string) {
-    const response = await api.post(`/tickets/${id}/comments`, { comment });
+    const response = await api.post(`/tickets/${id}/comments`, { message: comment });
     return response.data;
   },
 

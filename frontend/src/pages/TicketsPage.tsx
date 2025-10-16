@@ -76,9 +76,13 @@ export const TicketsPage = () => {
   const addCommentMutation = useMutation({
     mutationFn: ({ id, comment }: { id: string; comment: string }) => 
       ticketService.addComment(id, comment),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
       setCommentText('');
+      // Update the selected ticket with the new comment data
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to add comment');
@@ -599,7 +603,7 @@ export const TicketsPage = () => {
                           {new Date(comment.createdAt).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-700">{comment.comment}</p>
+                      <p className="text-sm text-gray-700">{comment.message}</p>
                     </div>
                   ))}
                 </div>
