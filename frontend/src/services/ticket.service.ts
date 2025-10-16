@@ -74,8 +74,8 @@ export const ticketService = {
     return response.data;
   },
 
-  async assignTicket(id: string, assigneeId: string) {
-    const response = await api.patch(`/tickets/${id}/assign`, { assigneeId });
+  async assignTicket(id: string, userId: string) {
+    const response = await api.patch(`/tickets/${id}/assign`, { userId });
     return response.data;
   },
 
