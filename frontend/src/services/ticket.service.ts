@@ -22,7 +22,16 @@ export interface Ticket {
   };
   comments: Comment[];
   attachments: string[];
-  resolution?: string;
+  resolution?: {
+    resolvedBy?: {
+      _id: string;
+      firstName: string;
+      lastName: string;
+    };
+    resolvedAt?: Date;
+    resolution?: string;
+    actionTaken?: string;
+  };
   resolvedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -86,7 +95,7 @@ export const ticketService = {
   },
 
   async resolveTicket(id: string, resolution: string) {
-    const response = await api.post(`/tickets/${id}/resolve`, { resolution });
+    const response = await api.patch(`/tickets/${id}/resolve`, { resolution });
     return response.data;
   },
 
