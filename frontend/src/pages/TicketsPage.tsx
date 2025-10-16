@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   AlertCircle, Plus, Search, Filter, MessageSquare, Clock,
-  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send, UserPlus
+  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send, UserPlus, Edit, Save
 } from 'lucide-react';
 import { ticketService, type Ticket } from '../services/ticket.service';
 import { userService } from '../services/user.service';
@@ -23,6 +23,18 @@ export const TicketsPage = () => {
   const [commentText, setCommentText] = useState('');
   const [selectedAssignee, setSelectedAssignee] = useState('');
   const [resolutionText, setResolutionText] = useState('');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedTicket, setEditedTicket] = useState<{
+    title: string;
+    description: string;
+    category: string;
+    priority: string;
+  }>({
+    title: '',
+    description: '',
+    category: '',
+    priority: ''
+  });
 
   // Fetch team members (collectors, operators, authorities, admins) for assignment
   const { data: usersData } = useQuery({
@@ -70,8 +82,13 @@ export const TicketsPage = () => {
   // Update ticket mutation
   const updateTicketMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => ticketService.updateTicket(id, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      setIsEditMode(false);
+      alert('Ticket updated successfully');
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update ticket');
@@ -280,6 +297,37 @@ export const TicketsPage = () => {
         status: newStatus
       });
     }
+  };
+
+  const handleEditTicket = () => {
+    if (selectedTicket) {
+      setEditedTicket({
+        title: selectedTicket.title,
+        description: selectedTicket.description,
+        category: selectedTicket.category,
+        priority: selectedTicket.priority
+      });
+      setIsEditMode(true);
+    }
+  };
+
+  const handleSaveEdit = () => {
+    if (selectedTicket && editedTicket.title.trim() && editedTicket.description.trim()) {
+      updateTicketMutation.mutate({
+        id: selectedTicket._id,
+        data: editedTicket
+      });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setEditedTicket({
+      title: '',
+      description: '',
+      category: '',
+      priority: ''
+    });
   };
 
   const resetNewTicket = () => {
@@ -624,9 +672,23 @@ export const TicketsPage = () => {
                 <h2 className="text-2xl font-bold text-gray-900">Ticket Details</h2>
                 <span className="font-mono text-sm text-gray-500">{selectedTicket.ticketNumber}</span>
               </div>
-              <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }} className="p-2 transition-colors rounded-lg hover:bg-gray-100">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Edit button for residents who own the ticket */}
+                {user?.role === 'resident' && 
+                 selectedTicket.reporter._id === user._id && 
+                 !isEditMode && (
+                  <button 
+                    onClick={handleEditTicket}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 transition-colors rounded-lg hover:bg-blue-50"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Edit
+                  </button>
+                )}
+                <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); setIsEditMode(false); }} className="p-2 transition-colors rounded-lg hover:bg-gray-100">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 space-y-6">
@@ -644,11 +706,82 @@ export const TicketsPage = () => {
                 </span>
               </div>
 
-              {/* Title & Description */}
-              <div>
-                <h3 className="mb-3 text-xl font-bold text-gray-900">{selectedTicket.title}</h3>
-                <p className="leading-relaxed text-gray-700">{selectedTicket.description}</p>
-              </div>
+              {/* Title & Description - Editable for ticket owner */}
+              {isEditMode && user?.role === 'resident' && selectedTicket.reporter._id === user._id ? (
+                <div className="p-4 space-y-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                  <div>
+                    <label className="block mb-2 text-sm font-medium text-gray-700">Title *</label>
+                    <input
+                      type="text"
+                      value={editedTicket.title}
+                      onChange={(e) => setEditedTicket({ ...editedTicket, title: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Brief description of the issue"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-2 text-sm font-medium text-gray-700">Description *</label>
+                    <textarea
+                      value={editedTicket.description}
+                      onChange={(e) => setEditedTicket({ ...editedTicket, description: e.target.value })}
+                      rows={5}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Detailed description of your issue..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block mb-2 text-sm font-medium text-gray-700">Category *</label>
+                      <select
+                        value={editedTicket.category}
+                        onChange={(e) => setEditedTicket({ ...editedTicket, category: e.target.value })}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="collection">Collection Issue</option>
+                        <option value="bin">Bin Issue</option>
+                        <option value="payment">Payment Issue</option>
+                        <option value="technical">Technical Issue</option>
+                        <option value="complaint">Complaint</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block mb-2 text-sm font-medium text-gray-700">Priority *</label>
+                      <select
+                        value={editedTicket.priority}
+                        onChange={(e) => setEditedTicket({ ...editedTicket, priority: e.target.value })}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={!editedTicket.title.trim() || !editedTicket.description.trim() || updateTicketMutation.isPending}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white transition-colors rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4" />
+                      {updateTicketMutation.isPending ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 transition-colors border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="mb-3 text-xl font-bold text-gray-900">{selectedTicket.title}</h3>
+                  <p className="leading-relaxed text-gray-700">{selectedTicket.description}</p>
+                </div>
+              )}
 
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
@@ -657,6 +790,15 @@ export const TicketsPage = () => {
                   <p className="mt-1 text-sm font-medium text-gray-900">
                     {new Date(selectedTicket.createdAt).toLocaleString()}
                   </p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Last Updated</label>
+                  <p className="mt-1 text-sm font-medium text-gray-900">
+                    {new Date(selectedTicket.updatedAt).toLocaleString()}
+                  </p>
+                  {selectedTicket.updatedAt !== selectedTicket.createdAt && (
+                    <span className="text-xs text-emerald-600">• Modified</span>
+                  )}
                 </div>
                 {selectedTicket.assignedTo && (
                   <div>

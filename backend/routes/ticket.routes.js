@@ -30,7 +30,7 @@ router.route("/").get(getTickets).post(createTicket);
 router
   .route("/:id")
   .get(getTicket)
-  .put(authorize("authority", "operator", "admin"), updateTicket)
+  .put(updateTicket) // Authorization handled in controller (residents can edit their own)
   .delete(authorize("admin"), deleteTicket);
 
 // Action routes
