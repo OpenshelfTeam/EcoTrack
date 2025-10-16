@@ -13,7 +13,7 @@ interface Bin {
   address: string;
   capacity: number;
   currentLevel: number;
-  status: 'active' | 'full' | 'maintenance' | 'inactive';
+  status: 'available' | 'assigned' | 'in-transit' | 'active' | 'maintenance' | 'damaged' | 'full' | 'inactive';
   type: 'general' | 'recyclable' | 'organic' | 'hazardous';
   lastCollection: string;
   nextCollection: string;
@@ -112,17 +112,21 @@ export const BinsPage = () => {
   // Statistics
   const stats = {
     total: bins.length,
-    active: bins.filter(b => b.status === 'active').length,
-    full: bins.filter(b => b.status === 'full').length,
-    maintenance: bins.filter(b => b.status === 'maintenance').length,
-    averageLevel: Math.round(bins.reduce((sum, b) => sum + b.currentLevel, 0) / bins.length)
+    active: bins.filter(b => b.status === 'active' || b.status === 'available' || b.status === 'assigned').length,
+    full: bins.filter(b => b.status === 'full' || b.currentLevel >= 80).length,
+    maintenance: bins.filter(b => b.status === 'maintenance' || b.status === 'damaged').length,
+    averageLevel: bins.length > 0 ? Math.round(bins.reduce((sum, b) => sum + b.currentLevel, 0) / bins.length) : 0
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
+      case 'available': return 'text-blue-600 bg-blue-50 border-blue-200';
+      case 'assigned': return 'text-purple-600 bg-purple-50 border-purple-200';
+      case 'in-transit': return 'text-indigo-600 bg-indigo-50 border-indigo-200';
       case 'full': return 'text-red-600 bg-red-50 border-red-200';
       case 'maintenance': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'damaged': return 'text-orange-600 bg-orange-50 border-orange-200';
       case 'inactive': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
@@ -147,8 +151,13 @@ export const BinsPage = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'active': return <CheckCircle className="w-4 h-4" />;
+      case 'available': return <CheckCircle className="w-4 h-4" />;
+      case 'assigned': return <CheckCircle className="w-4 h-4" />;
+      case 'in-transit': return <Clock className="w-4 h-4" />;
       case 'full': return <AlertCircle className="w-4 h-4" />;
       case 'maintenance': return <Clock className="w-4 h-4" />;
+      case 'damaged': return <AlertCircle className="w-4 h-4" />;
+      case 'inactive': return <Clock className="w-4 h-4" />;
       default: return <Clock className="w-4 h-4" />;
     }
   };

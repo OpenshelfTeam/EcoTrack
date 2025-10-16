@@ -8,11 +8,13 @@ const smartBinSchema = new mongoose.Schema({
   },
   qrCode: {
     type: String,
-    unique: true
+    unique: true,
+    sparse: true  // Allows multiple null values
   },
   rfidTag: {
     type: String,
-    unique: true
+    unique: true,
+    sparse: true  // Allows multiple null values
   },
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
@@ -49,7 +51,7 @@ const smartBinSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['available', 'assigned', 'in-transit', 'active', 'maintenance', 'damaged'],
+    enum: ['available', 'assigned', 'in-transit', 'active', 'maintenance', 'damaged', 'full', 'inactive'],
     default: 'available'
   },
   lastEmptied: {
