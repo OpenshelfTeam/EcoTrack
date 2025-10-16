@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Home,
+  Map,
   Trash2,
   Truck,
   Ticket,
@@ -53,6 +54,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       return [
         ...baseItems,
         { name: 'My Routes', icon: Truck, path: '/routes' },
+        { name: 'Map', icon: Map, path: '/map' },
         { name: 'Collections', icon: Trash2, path: '/collections' },
       ];
     }

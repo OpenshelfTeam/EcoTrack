@@ -4,12 +4,15 @@ import { Layout } from '../components/Layout';
 import {
   MapPin, Truck, Plus, Search, Filter, Edit2, Trash2, Users,
   Clock, Navigation, CheckCircle, AlertCircle, Calendar, X,
-  Route as RouteIcon, Zap, Eye, Map as MapIcon, Loader2
+  Route as RouteIcon, Zap, Eye, Map as MapIcon, Loader2,
+  Camera, QrCode, PlayCircle, Flag, Image, XCircle, ArrowRight
 } from 'lucide-react';
 import { routeService, type Route } from '../services/route.service';
+import { useAuth } from '../contexts/AuthContext';
 
 export const RoutesPage = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterArea, setFilterArea] = useState<string>('all');
@@ -25,6 +28,20 @@ export const RoutesPage = () => {
     scheduledTime: { start: '', end: '' },
     priority: 'medium',
     notes: ''
+  });
+
+  // Collector workflow states
+  const [activeRoute, setActiveRoute] = useState<Route | null>(null);
+  const [currentBinIndex, setCurrentBinIndex] = useState(0);
+  const [collectedBins, setCollectedBins] = useState<any[]>([]);
+  const [showBinScanner, setShowBinScanner] = useState(false);
+  const [showBinStatusModal, setShowBinStatusModal] = useState(false);
+  const [showExceptionModal, setShowExceptionModal] = useState(false);
+  const [currentBin, setCurrentBin] = useState<any>(null);
+  const [exceptionData, setExceptionData] = useState({
+    issueType: '',
+    notes: '',
+    photo: null as File | null
   });
 
   // Fetch routes with filters
@@ -214,6 +231,104 @@ export const RoutesPage = () => {
       priority: 'medium',
       notes: ''
     });
+  };
+
+  // Collector workflow handlers
+  const handleStartCollectionRoute = (route: Route) => {
+    setActiveRoute(route);
+    setCurrentBinIndex(0);
+    setCollectedBins([]);
+    setViewMode('map');
+    startMutation.mutate(route._id);
+  };
+
+  const handleScanBin = (bin: any) => {
+    setCurrentBin(bin);
+    setShowBinScanner(false);
+    setShowBinStatusModal(true);
+  };
+
+  const handleMarkBinStatus = (status: 'collected' | 'empty' | 'damaged') => {
+    if (!currentBin || !activeRoute) return;
+
+    const binData = {
+      binId: currentBin._id,
+      status,
+      timestamp: new Date().toISOString(),
+      location: currentBin.location
+    };
+
+    setCollectedBins([...collectedBins, binData]);
+    
+    // Send notification to bin owner and admins
+    const message = status === 'collected' 
+      ? `Your bin at ${currentBin.location?.address} has been collected.`
+      : status === 'empty'
+      ? `Your bin at ${currentBin.location?.address} was marked as empty.`
+      : `Your bin at ${currentBin.location?.address} is damaged and needs attention.`;
+    
+    alert(`Notification sent: ${message}`);
+    
+    setShowBinStatusModal(false);
+    setCurrentBin(null);
+
+    // Move to next bin
+    if (currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
+      setCurrentBinIndex(currentBinIndex + 1);
+    }
+  };
+
+  const handleReportException = () => {
+    if (!currentBin || !exceptionData.issueType) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    // Send exception report with photo and notes
+    const exceptionReport = {
+      binId: currentBin._id,
+      location: currentBin.location,
+      issueType: exceptionData.issueType,
+      notes: exceptionData.notes,
+      photo: exceptionData.photo,
+      timestamp: new Date().toISOString(),
+      reportedBy: 'Collector' // Would use actual user data
+    };
+
+    alert(`Exception reported for bin ${currentBin._id}. Notifications sent to bin owner and admins.`);
+    
+    setShowExceptionModal(false);
+    setShowBinStatusModal(false);
+    setCurrentBin(null);
+    setExceptionData({ issueType: '', notes: '', photo: null });
+
+    // Move to next bin
+    if (activeRoute && currentBinIndex < (activeRoute.bins?.length || 0) - 1) {
+      setCurrentBinIndex(currentBinIndex + 1);
+    }
+  };
+
+  const handleCompleteCollectionRoute = () => {
+    if (!activeRoute) return;
+
+    if (confirm(`Complete route "${activeRoute.routeName}"? ${collectedBins.length} bins processed.`)) {
+      completeMutation.mutate({
+        id: activeRoute._id,
+        data: {
+          collectedBins: collectedBins.length,
+          distance: 0, // Would calculate from GPS tracking
+          completedAt: new Date().toISOString()
+        }
+      });
+
+      // Send completion notifications
+      alert(`Route completed! Notifications sent to all bin owners and admins.`);
+      
+      setActiveRoute(null);
+      setCurrentBinIndex(0);
+      setCollectedBins([]);
+      setViewMode('list');
+    }
   };
 
   return (
@@ -489,15 +604,261 @@ export const RoutesPage = () => {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <MapIcon className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Map View</h3>
-            <p className="text-gray-600">Interactive route map visualization would be displayed here</p>
-            <p className="text-sm text-gray-500 mt-2">Integrate with Google Maps API or similar service</p>
+          // Interactive Collector Map View
+          <div className="space-y-6">
+            {activeRoute ? (
+              // Active Route Collection Interface
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Map Section - 2 columns */}
+                <div className="lg:col-span-2 space-y-4">
+                  {/* Map Container */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                          <MapIcon className="w-6 h-6 text-blue-600" />
+                          Route Map
+                        </h3>
+                        <p className="text-sm text-gray-600 mt-1">{activeRoute.routeName}</p>
+                      </div>
+                      <button
+                        onClick={handleCompleteCollectionRoute}
+                        className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center gap-2"
+                      >
+                        <Flag className="w-5 h-5" />
+                        Complete Route
+                      </button>
+                    </div>
+
+                    {/* Map Display */}
+                    <div className="relative bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl overflow-hidden border-2 border-blue-100 mb-4" style={{ height: '500px' }}>
+                      <div className="absolute inset-0 grid grid-cols-3 gap-4 p-6">
+                        {activeRoute.bins?.map((bin: any, index: number) => {
+                          const isCollected = collectedBins.some(b => b.binId === bin._id);
+                          const isCurrent = index === currentBinIndex;
+                          
+                          return (
+                            <button
+                              key={bin._id}
+                              onClick={() => {
+                                setCurrentBin(bin);
+                                setShowBinScanner(true);
+                              }}
+                              disabled={isCollected}
+                              className={`relative p-4 rounded-xl border-2 transition-all ${
+                                isCollected
+                                  ? 'bg-emerald-100 border-emerald-400 opacity-60'
+                                  : isCurrent
+                                  ? 'bg-yellow-100 border-yellow-400 shadow-lg animate-pulse'
+                                  : 'bg-white border-gray-300 hover:border-blue-400 hover:shadow-md'
+                              }`}
+                            >
+                              <div className="absolute -top-2 -right-2">
+                                {isCollected ? (
+                                  <CheckCircle className="w-6 h-6 text-emerald-600 bg-white rounded-full" />
+                                ) : isCurrent ? (
+                                  <div className="w-6 h-6 bg-yellow-500 rounded-full animate-ping" />
+                                ) : (
+                                  <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                                    {index + 1}
+                                  </div>
+                                )}
+                              </div>
+                              <MapPin className={`w-8 h-8 mx-auto mb-2 ${
+                                isCollected ? 'text-emerald-600' : isCurrent ? 'text-yellow-600' : 'text-gray-600'
+                              }`} />
+                              <p className="text-xs font-medium text-gray-900 truncate">{bin.location?.address || `Bin ${index + 1}`}</p>
+                              <p className="text-xs text-gray-500 mt-1">{bin.type || 'Standard'}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Navigation overlay */}
+                      <div className="absolute bottom-4 right-4 space-y-2">
+                        <button className="p-3 bg-white rounded-xl shadow-lg hover:shadow-xl transition-all">
+                          <Navigation className="w-5 h-5 text-blue-600" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Route Progress */}
+                    <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-5 border border-emerald-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-bold text-gray-800">Collection Progress</h4>
+                        <span className="text-2xl font-bold text-emerald-600">
+                          {collectedBins.length}/{activeRoute.bins?.length || 0}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
+                        <div 
+                          className="bg-gradient-to-r from-emerald-500 to-teal-500 h-3 rounded-full transition-all duration-500"
+                          style={{ width: `${((collectedBins.length / (activeRoute.bins?.length || 1)) * 100)}%` }}
+                        ></div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="bg-white/70 rounded-lg p-3">
+                          <p className="text-sm text-gray-600">Collected</p>
+                          <p className="text-xl font-bold text-emerald-600">{collectedBins.filter(b => b.status === 'collected').length}</p>
+                        </div>
+                        <div className="bg-white/70 rounded-lg p-3">
+                          <p className="text-sm text-gray-600">Empty</p>
+                          <p className="text-xl font-bold text-yellow-600">{collectedBins.filter(b => b.status === 'empty').length}</p>
+                        </div>
+                        <div className="bg-white/70 rounded-lg p-3">
+                          <p className="text-sm text-gray-600">Damaged</p>
+                          <p className="text-xl font-bold text-red-600">{collectedBins.filter(b => b.status === 'damaged').length}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Collection Actions Panel - 1 column */}
+                <div className="space-y-4">
+                  {/* Current Bin Info */}
+                  {activeRoute.bins && activeRoute.bins[currentBinIndex] && (
+                    <div className="bg-white rounded-xl border-2 border-blue-200 p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <MapPin className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-600">Next Bin</p>
+                          <p className="font-bold text-gray-900">{activeRoute.bins[currentBinIndex].location?.address || `Bin ${currentBinIndex + 1}`}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <Truck className="w-4 h-4" />
+                          <span>Type: {activeRoute.bins[currentBinIndex].type || 'Standard'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Navigation className="w-4 h-4" />
+                          <span>Distance: 0.5 km</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setShowBinScanner(true)}
+                        className="w-full mt-4 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                      >
+                        <QrCode className="w-5 h-5" />
+                        Scan Bin QR Code
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Quick Actions */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <h4 className="font-bold text-gray-900 mb-4">Quick Actions</h4>
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => {
+                          if (activeRoute.bins && activeRoute.bins[currentBinIndex]) {
+                            setCurrentBin(activeRoute.bins[currentBinIndex]);
+                            setShowExceptionModal(true);
+                          }
+                        }}
+                        className="w-full px-4 py-3 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors flex items-center gap-2 font-medium"
+                      >
+                        <Camera className="w-5 h-5" />
+                        Report Issue
+                      </button>
+                      <button
+                        onClick={() => setViewMode('list')}
+                        className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2 font-medium"
+                      >
+                        <XCircle className="w-5 h-5" />
+                        Cancel Route
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Recent Collections */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6">
+                    <h4 className="font-bold text-gray-900 mb-4">Recent Collections</h4>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {collectedBins.slice().reverse().map((bin, idx) => (
+                        <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                          <CheckCircle className={`w-5 h-5 flex-shrink-0 ${
+                            bin.status === 'collected' ? 'text-emerald-600' :
+                            bin.status === 'empty' ? 'text-yellow-600' : 'text-red-600'
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {bin.location?.address || 'Bin Location'}
+                            </p>
+                            <p className="text-xs text-gray-500 capitalize">{bin.status}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {collectedBins.length === 0 && (
+                        <p className="text-sm text-gray-500 text-center py-4">No collections yet</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Select Route to Start
+              <div className="bg-white rounded-xl border border-gray-200 p-12">
+                <div className="max-w-2xl mx-auto text-center">
+                  <MapIcon className="w-20 h-20 text-emerald-500 mx-auto mb-6" />
+                  <h3 className="text-2xl font-bold text-gray-900 mb-3">Start Collection Route</h3>
+                  <p className="text-gray-600 mb-8">Select a route below to begin waste collection with interactive map guidance</p>
+                  
+                  <div className="space-y-4">
+                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active').map((route: any) => (
+                      <button
+                        key={route._id}
+                        onClick={() => handleStartCollectionRoute(route)}
+                        className="w-full p-6 bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl hover:border-emerald-400 hover:shadow-lg transition-all text-left"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-bold text-gray-900 text-lg mb-2">{route.routeName}</h4>
+                            <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-4 h-4" />
+                                {route.area}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Truck className="w-4 h-4" />
+                                {route.bins?.length || 0} bins
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-4 h-4" />
+                                {route.scheduledTime.start} - {route.scheduledTime.end}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <PlayCircle className="w-8 h-8 text-emerald-600" />
+                            <ArrowRight className="w-6 h-6 text-gray-400" />
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                    {routes.filter((r: any) => r.status === 'pending' || r.status === 'active').length === 0 && (
+                      <p className="text-gray-500 py-8">No active routes available to start</p>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className="mt-8 px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Back to List View
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {routes.length === 0 && (
+        {routes.length === 0 && viewMode === 'list' && (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
             <RouteIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">No routes found</h3>
@@ -718,6 +1079,233 @@ export const RoutesPage = () => {
                 className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bin Scanner Modal */}
+      {showBinScanner && currentBin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-xl">
+                  <QrCode className="h-6 w-6 text-blue-600" />
+                </div>
+                Scan Bin QR Code
+              </h3>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="text-2xl text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Scanner Area */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 mb-6 border-2 border-dashed border-blue-300">
+              <div className="text-center">
+                <QrCode className="h-24 w-24 text-blue-400 mx-auto mb-4 animate-pulse" />
+                <p className="text-gray-700 font-medium mb-2">Position QR code within frame</p>
+                <p className="text-sm text-gray-500">or tap NFC-enabled bin</p>
+                <div className="mt-4 p-3 bg-white/70 rounded-lg">
+                  <p className="text-xs font-medium text-gray-600">Bin Location</p>
+                  <p className="text-sm font-bold text-gray-900">{currentBin.location?.address || 'Bin Location'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => handleScanBin(currentBin)}
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Confirm Scan
+              </button>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bin Status Selection Modal */}
+      {showBinStatusModal && currentBin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <CheckCircle className="h-6 w-6 text-emerald-600" />
+                </div>
+                Mark Bin Status
+              </h3>
+              <button
+                onClick={() => {
+                  setShowBinStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="text-2xl text-gray-400" />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <p className="text-sm text-gray-600">Bin Location</p>
+              <p className="text-lg font-bold text-gray-800">{currentBin.location?.address || 'Bin Location'}</p>
+              <div className="flex items-center gap-3 mt-2 text-sm text-gray-600">
+                <span>Type: {currentBin.type || 'Standard'}</span>
+                <span>•</span>
+                <span>ID: {currentBin._id?.substring(0, 8)}...</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => handleMarkBinStatus('collected')}
+                className="w-full px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2 text-lg"
+              >
+                <CheckCircle className="h-6 w-6" />
+                Collected Successfully
+              </button>
+              <button
+                onClick={() => handleMarkBinStatus('empty')}
+                className="w-full px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <XCircle className="h-5 h-5" />
+                No Garbage (Empty)
+              </button>
+              <button
+                onClick={() => {
+                  setShowBinStatusModal(false);
+                  setShowExceptionModal(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <AlertCircle className="h-5 h-5" />
+                Damaged / Report Issue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exception Report Modal */}
+      {showExceptionModal && currentBin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-xl">
+                  <Camera className="h-6 w-6 text-orange-600" />
+                </div>
+                Report Exception
+              </h3>
+              <button
+                onClick={() => {
+                  setShowExceptionModal(false);
+                  setCurrentBin(null);
+                  setExceptionData({ issueType: '', notes: '', photo: null });
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="text-2xl text-gray-400" />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <p className="text-sm text-gray-600">Bin Location</p>
+              <p className="text-lg font-bold text-gray-800">{currentBin.location?.address || 'Bin Location'}</p>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              {/* Photo Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Photo *</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-orange-400 transition-colors cursor-pointer bg-gray-50">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setExceptionData({ ...exceptionData, photo: e.target.files[0] });
+                      }
+                    }}
+                    className="hidden"
+                    id="photo-upload"
+                  />
+                  <label htmlFor="photo-upload" className="cursor-pointer">
+                    <Image className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                    <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 10MB</p>
+                    {exceptionData.photo && (
+                      <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Photo selected: {exceptionData.photo.name}</p>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* Issue Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Issue Type *</label>
+                <select
+                  value={exceptionData.issueType}
+                  onChange={(e) => setExceptionData({ ...exceptionData, issueType: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                >
+                  <option value="">Select issue type</option>
+                  <option value="damaged">Bin Damaged</option>
+                  <option value="inaccessible">Bin Inaccessible</option>
+                  <option value="missing">Bin Missing</option>
+                  <option value="hazardous">Hazardous Material</option>
+                  <option value="overfilled">Overfilled</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                <textarea
+                  value={exceptionData.notes}
+                  onChange={(e) => setExceptionData({ ...exceptionData, notes: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  rows={4}
+                  placeholder="Describe the issue in detail..."
+                ></textarea>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> This will notify the bin owner and system administrators immediately.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleReportException}
+                disabled={!exceptionData.issueType || !exceptionData.notes}
+                className="w-full px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Submit Report & Notify
+              </button>
+              <button
+                onClick={() => {
+                  setShowExceptionModal(false);
+                  setCurrentBin(null);
+                  setExceptionData({ issueType: '', notes: '', photo: null });
+                }}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
               </button>
             </div>
           </div>

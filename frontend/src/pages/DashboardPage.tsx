@@ -6,14 +6,21 @@ import { analyticsService } from '../services/analytics.service';
 import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Truck, AlertCircle, DollarSign, TrendingUp, ArrowUp, 
-  ArrowDown, Clock, Calendar, MapPin, Bell, BarChart3,
-  ChevronRight, CheckCircle, Users, Map, Leaf, Shield, UserCog
+  ArrowDown, Clock, MapPin, Bell, BarChart3,
+  ChevronRight, CheckCircle, Users, Leaf, Shield, UserCog,
+  Camera, QrCode, Image
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
+  
+  // Modal states for exception reporting
+  const [currentBin, setCurrentBin] = useState<any>(null);
+  const [showBinScanner, setShowBinScanner] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showExceptionReport, setShowExceptionReport] = useState(false);
 
   // Fetch dashboard statistics
   const { data: dashboardData, isLoading: statsLoading } = useQuery({
@@ -461,14 +468,15 @@ export const DashboardPage: React.FC = () => {
               })}
               
               {user?.role === 'collector' && [
-                { icon: Truck, label: 'Start Route', color: 'from-blue-500 to-indigo-600', desc: 'Begin your collection journey' },
-                { icon: Trash2, label: 'Record Collection', color: 'from-emerald-500 to-teal-600', desc: 'Log completed bin collections' },
-                { icon: AlertCircle, label: 'Report Exception', color: 'from-orange-500 to-red-600', desc: 'Report issues encountered' },
+                { icon: Truck, label: 'Start Route', color: 'from-blue-500 to-indigo-600', desc: 'Begin your collection journey', path: '/routes' },
+                { icon: Trash2, label: 'View Routes', color: 'from-emerald-500 to-teal-600', desc: 'See all collection routes', path: '/routes' },
+                { icon: AlertCircle, label: 'Report Exception', color: 'from-orange-500 to-red-600', desc: 'Report issues encountered', path: '/tickets' },
               ].map((action, i) => {
                 const Icon = action.icon;
                 return (
                   <button
                     key={i}
+                    onClick={() => navigate(action.path)}
                     className={`group w-full flex items-center gap-4 p-5 bg-gradient-to-r ${action.color} text-white rounded-2xl hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3)] transition-all duration-500 transform hover:translate-y-[-2px] hover:scale-[1.01] relative overflow-hidden animate-fadeIn`}
                     style={{ animationDelay: `${i * 150}ms` }}
                   >
@@ -611,6 +619,209 @@ export const DashboardPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Bin Scanner Modal */}
+      {showBinScanner && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-xl">
+                  <QrCode className="h-6 w-6 text-blue-600" />
+                </div>
+                Scan Bin
+              </h3>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+            
+            {/* Scanner Area */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 mb-6 border-2 border-dashed border-blue-300">
+              <div className="text-center">
+                <QrCode className="h-24 w-24 text-blue-400 mx-auto mb-4 animate-pulse" />
+                <p className="text-gray-700 font-medium mb-2">Position QR code within frame</p>
+                <p className="text-sm text-gray-500">or tap NFC-enabled bin</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setCurrentBin({ id: 'BIN-' + Math.random().toString(36).substr(2, 9), location: 'Main St & 5th Ave' });
+                  setShowBinScanner(false);
+                  setShowStatusModal(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Simulate Scan
+              </button>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bin Status Modal */}
+      {showStatusModal && currentBin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <Trash2 className="h-6 w-6 text-emerald-600" />
+                </div>
+                Mark Bin Status
+              </h3>
+              <button
+                onClick={() => {
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <p className="text-sm text-gray-600">Bin ID</p>
+              <p className="text-lg font-bold text-gray-800">{currentBin.id}</p>
+              <p className="text-sm text-gray-600 mt-2">Location</p>
+              <p className="text-gray-700">{currentBin.location}</p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  alert('Bin marked as collected! Owner will be notified.');
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="h-5 w-5" />
+                Mark as Collected
+              </button>
+              <button
+                onClick={() => {
+                  alert('Bin marked as empty!');
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                No Garbage Found
+              </button>
+              <button
+                onClick={() => {
+                  setShowStatusModal(false);
+                  setShowExceptionReport(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Report as Damaged
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exception Report Modal */}
+      {showExceptionReport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-xl">
+                  <Camera className="h-6 w-6 text-orange-600" />
+                </div>
+                Report Exception
+              </h3>
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+
+            {currentBin && (
+              <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+                <p className="text-sm text-gray-600">Bin ID</p>
+                <p className="text-lg font-bold text-gray-800">{currentBin.id}</p>
+              </div>
+            )}
+
+            <div className="space-y-4 mb-6">
+              {/* Photo Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Photo</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-orange-400 transition-colors cursor-pointer bg-gray-50">
+                  <Image className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                  <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 10MB</p>
+                </div>
+              </div>
+
+              {/* Issue Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Issue Type</label>
+                <select className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+                  <option>Bin Damaged</option>
+                  <option>Bin Inaccessible</option>
+                  <option>Bin Missing</option>
+                  <option>Hazardous Material</option>
+                  <option>Other</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                <textarea
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  rows={4}
+                  placeholder="Describe the issue in detail..."
+                ></textarea>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                  alert('Exception report submitted successfully!');
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Submit Report
+              </button>
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };

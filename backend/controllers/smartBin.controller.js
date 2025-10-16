@@ -1,5 +1,6 @@
 import SmartBin from '../models/SmartBin.model.js';
 import User from '../models/User.model.js';
+import Notification from '../models/Notification.model.js';
 
 // @desc    Get all smart bins with advanced filtering
 // @route   GET /api/smart-bins
@@ -132,9 +133,95 @@ export const createSmartBin = async (req, res) => {
   try {
     const bin = await SmartBin.create(req.body);
 
+    // Get the user who created the bin
+    const creator = await User.findById(req.user.id);
+    
+    // Send notifications to collectors, admins, and the creator
+    const notificationPromises = [];
+
+    // 1. Notify all active collectors
+    const collectors = await User.find({ 
+      role: 'collector', 
+      status: 'active' 
+    }).select('_id');
+
+    collectors.forEach(collector => {
+      notificationPromises.push(
+        Notification.create({
+          recipient: collector._id,
+          type: 'bin-delivered',
+          title: '🗑️ New Bin Added',
+          message: `A new ${bin.binType} waste bin has been registered at ${bin.location?.address || 'unknown location'}. Check the map for details.`,
+          priority: 'medium',
+          channel: ['in-app', 'push'],
+          relatedEntity: {
+            entityType: 'bin',
+            entityId: bin._id
+          },
+          metadata: {
+            actionUrl: '/map',
+            actionLabel: 'View on Map'
+          }
+        })
+      );
+    });
+
+    // 2. Notify all admins
+    const admins = await User.find({ 
+      role: 'admin', 
+      status: 'active' 
+    }).select('_id');
+
+    admins.forEach(admin => {
+      notificationPromises.push(
+        Notification.create({
+          recipient: admin._id,
+          type: 'bin-delivered',
+          title: '🗑️ New Bin Registered',
+          message: `${creator?.firstName || 'A user'} registered a new ${bin.binType} bin (ID: ${bin.binId}) at ${bin.location?.address || 'unknown location'}.`,
+          priority: 'low',
+          channel: ['in-app'],
+          relatedEntity: {
+            entityType: 'bin',
+            entityId: bin._id
+          },
+          metadata: {
+            actionUrl: '/bins',
+            actionLabel: 'View Bins'
+          }
+        })
+      );
+    });
+
+    // 3. Notify the creator (resident/user who added the bin)
+    if (creator) {
+      notificationPromises.push(
+        Notification.create({
+          recipient: creator._id,
+          type: 'bin-activated',
+          title: '✅ Bin Successfully Registered',
+          message: `Your ${bin.binType} waste bin at ${bin.location?.address || 'your location'} has been successfully registered. Collectors will be notified for regular pickups.`,
+          priority: 'high',
+          channel: ['in-app', 'email'],
+          relatedEntity: {
+            entityType: 'bin',
+            entityId: bin._id
+          },
+          metadata: {
+            actionUrl: '/bins',
+            actionLabel: 'View My Bins'
+          }
+        })
+      );
+    }
+
+    // Send all notifications
+    await Promise.all(notificationPromises);
+
     res.status(201).json({
       success: true,
-      data: bin
+      data: bin,
+      message: 'Bin created successfully and notifications sent'
     });
   } catch (error) {
     res.status(500).json({

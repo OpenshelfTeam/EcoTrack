@@ -16,6 +16,7 @@ import { FeedbackPage } from './pages/FeedbackPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PickupsPage } from './pages/PickupsPage';
 import { UsersPage } from './pages/UsersPage';
+import { MapPage } from './pages/MapPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,6 +89,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['collector', 'authority', 'operator', 'admin']}>
                   <RoutesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/map"
+              element={
+                <ProtectedRoute allowedRoles={['collector']}>
+                  <MapPage />
                 </ProtectedRoute>
               }
             />
