@@ -3,12 +3,13 @@ import api from './api';
 export interface Ticket {
   _id: string;
   ticketId: string;
-  subject: string;
+  ticketNumber: string;
+  title: string;
   description: string;
   category: 'collection' | 'bin' | 'payment' | 'technical' | 'complaint' | 'other';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in-progress' | 'resolved' | 'closed';
-  createdBy: {
+  reporter: {
     _id: string;
     firstName: string;
     lastName: string;

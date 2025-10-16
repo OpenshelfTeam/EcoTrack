@@ -86,7 +86,7 @@ export const TicketsPage = () => {
   });
 
   const [newTicket, setNewTicket] = useState({
-    subject: '',
+    title: '',
     description: '',
     category: 'complaint' as const,
     priority: 'medium' as const
@@ -186,7 +186,7 @@ export const TicketsPage = () => {
 
   const resetNewTicket = () => {
     setNewTicket({
-      subject: '',
+      title: '',
       description: '',
       category: 'complaint',
       priority: 'medium'
@@ -372,7 +372,7 @@ export const TicketsPage = () => {
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-gray-500">{ticket.ticketId}</span>
+                          <span className="text-xs font-mono text-gray-500">{ticket.ticketNumber}</span>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryColor(ticket.category)}`}>
                             {ticket.category}
                           </span>
@@ -384,7 +384,7 @@ export const TicketsPage = () => {
                             {ticket.status.replace('_', ' ')}
                           </span>
                         </div>
-                        <h3 className="font-semibold text-gray-900 text-lg mb-1">{ticket.subject}</h3>
+                        <h3 className="font-semibold text-gray-900 text-lg mb-1">{ticket.title}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2">{ticket.description}</p>
                       </div>
                     </div>
@@ -441,11 +441,11 @@ export const TicketsPage = () => {
 
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Subject *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
                 <input
                   type="text"
-                  value={newTicket.subject}
-                  onChange={(e) => setNewTicket({ ...newTicket, subject: e.target.value })}
+                  value={newTicket.title}
+                  onChange={(e) => setNewTicket({ ...newTicket, title: e.target.value })}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   placeholder="Brief description of the issue"
                 />
@@ -504,7 +504,7 @@ export const TicketsPage = () => {
               </button>
               <button
                 onClick={handleCreateTicket}
-                disabled={!newTicket.subject || !newTicket.description || createTicketMutation.isPending}
+                disabled={!newTicket.title || !newTicket.description || createTicketMutation.isPending}
                 className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
               >
                 {createTicketMutation.isPending ? 'Creating...' : 'Create Ticket'}
@@ -521,7 +521,7 @@ export const TicketsPage = () => {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-gray-900">Ticket Details</h2>
-                <span className="text-sm font-mono text-gray-500">{selectedTicket.ticketId}</span>
+                <span className="text-sm font-mono text-gray-500">{selectedTicket.ticketNumber}</span>
               </div>
               <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
@@ -543,9 +543,9 @@ export const TicketsPage = () => {
                 </span>
               </div>
 
-              {/* Subject & Description */}
+              {/* Title & Description */}
               <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedTicket.subject}</h3>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedTicket.title}</h3>
                 <p className="text-gray-700 leading-relaxed">{selectedTicket.description}</p>
               </div>
 
@@ -568,7 +568,7 @@ export const TicketsPage = () => {
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Created By</label>
                   <p className="text-sm font-medium text-gray-900 mt-1">
-                    {selectedTicket.createdBy.firstName} {selectedTicket.createdBy.lastName}
+                    {selectedTicket.reporter.firstName} {selectedTicket.reporter.lastName}
                   </p>
                 </div>
                 {selectedTicket.resolvedAt && (
