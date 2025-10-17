@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const ticketSchema = new mongoose.Schema({
   ticketNumber: {
     type: String,
-    required: true,
+    required: false, // Auto-generated, so not required on creation
     unique: true,
     uppercase: true
   },
@@ -19,13 +19,19 @@ const ticketSchema = new mongoose.Schema({
   category: {
     type: String,
     enum: [
+      'collection',
+      'bin',
+      'payment',
+      'technical',
+      'complaint',
+      'other',
+      // Legacy values for backward compatibility
       'damaged-bin',
       'missed-pickup',
       'payment-issue',
       'bin-not-delivered',
       'collection-complaint',
-      'technical-issue',
-      'other'
+      'technical-issue'
     ],
     required: true
   },
