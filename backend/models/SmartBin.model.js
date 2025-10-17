@@ -21,6 +21,11 @@ const smartBinSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
   location: {
     type: {
       type: String,

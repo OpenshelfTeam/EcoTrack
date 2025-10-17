@@ -9,6 +9,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { BinsPage } from './pages/BinsPage';
 import { TicketsPage } from './pages/TicketsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
+import { SubscriptionPage } from './pages/SubscriptionPage';
 import { RoutesPage } from './pages/RoutesPage';
 import { CollectionsPage } from './pages/CollectionsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -16,6 +17,7 @@ import { FeedbackPage } from './pages/FeedbackPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PickupsPage } from './pages/PickupsPage';
 import { UsersPage } from './pages/UsersPage';
+import { MapPage } from './pages/MapPage';
 import { BinRequestsPage } from './pages/BinRequestsPage';
 import { DeliveriesPage } from './pages/DeliveriesPage';
 
@@ -86,10 +88,26 @@ function App() {
               }
             />
             <Route
+              path="/subscription"
+              element={
+                <ProtectedRoute allowedRoles={['resident']}>
+                  <SubscriptionPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/routes"
               element={
                 <ProtectedRoute allowedRoles={['collector', 'authority', 'operator', 'admin']}>
                   <RoutesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/map"
+              element={
+                <ProtectedRoute allowedRoles={['collector']}>
+                  <MapPage />
                 </ProtectedRoute>
               }
             />

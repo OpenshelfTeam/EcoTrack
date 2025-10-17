@@ -411,16 +411,20 @@ export const startRoute = async (req, res) => {
       });
     }
 
-    if (route.status !== 'pending') {
+    // Allow starting pending routes or continuing in-progress routes
+    if (route.status !== 'pending' && route.status !== 'in-progress') {
       return res.status(400).json({
         success: false,
         message: 'Route cannot be started'
       });
     }
 
-    route.status = 'in-progress';
-    route.startTime = new Date();
-    await route.save();
+    // Only update if not already in progress
+    if (route.status !== 'in-progress') {
+      route.status = 'in-progress';
+      route.startTime = new Date();
+      await route.save();
+    }
 
     const updatedRoute = await Route.findById(route._id)
       .populate('assignedCollector', 'firstName lastName email phone')

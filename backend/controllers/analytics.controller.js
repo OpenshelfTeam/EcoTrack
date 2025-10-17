@@ -8,22 +8,89 @@ import User from '../models/User.model.js';
 
 export const getDashboardStats = async (req, res) => {
   try {
-    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, totalPickups, pendingPickups, totalTickets, openTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers] = await Promise.all([
-      SmartBin.countDocuments(),
-      SmartBin.countDocuments({ status: 'active' }),
-      SmartBin.countDocuments({ fillLevel: { $gte: 80 }, status: 'active' }),
+    const now = new Date();
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+    // Build filters based on user role
+    const binFilter = req.user.role === 'resident' ? { createdBy: req.user.id } : {};
+    const pickupFilter = req.user.role === 'resident' ? { requestedBy: req.user.id } : {};
+    const ticketFilter = req.user.role === 'resident' ? { createdBy: req.user.id } : {};
+    const paymentFilter = req.user.role === 'resident' ? { paidBy: req.user.id } : {};
+
+    // Current period stats
+    const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, currentMonthCollections, lastMonthCollections, totalPickups, pendingPickups, currentMonthPickups, lastMonthPickups, totalTickets, openTickets, currentMonthTickets, lastMonthTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers, lastMonthUsers, usersByRole] = await Promise.all([
+      SmartBin.countDocuments(binFilter),
+      SmartBin.countDocuments({ ...binFilter, status: 'active' }),
+      SmartBin.countDocuments({ ...binFilter, fillLevel: { $gte: 80 }, status: 'active' }),
       CollectionRecord.countDocuments(),
-      CollectionRecord.countDocuments({ collectionDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)), $lt: new Date(new Date().setHours(23, 59, 59, 999)) } }),
-      PickupRequest.countDocuments(),
-      PickupRequest.countDocuments({ status: 'pending' }),
-      Ticket.countDocuments(),
-      Ticket.countDocuments({ status: { $in: ['open', 'in-progress'] } }),
-      Payment.aggregate([{ $match: { status: 'completed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Payment.aggregate([{ $match: { status: 'completed', createdAt: { $gte: new Date(new Date().setDate(1)) } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: new Date(now.setHours(0, 0, 0, 0)), $lt: new Date(now.setHours(23, 59, 59, 999)) } }),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: startOfCurrentMonth } }),
+      CollectionRecord.countDocuments({ collectionDate: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      PickupRequest.countDocuments(pickupFilter),
+      PickupRequest.countDocuments({ ...pickupFilter, status: 'pending' }),
+      PickupRequest.countDocuments({ ...pickupFilter, createdAt: { $gte: startOfCurrentMonth } }),
+      PickupRequest.countDocuments({ ...pickupFilter, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      Ticket.countDocuments(ticketFilter),
+      Ticket.countDocuments({ ...ticketFilter, status: { $in: ['open', 'in-progress'] } }),
+      Ticket.countDocuments({ ...ticketFilter, createdAt: { $gte: startOfCurrentMonth } }),
+      Ticket.countDocuments({ ...ticketFilter, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      Payment.aggregate([{ $match: { ...paymentFilter, status: 'completed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      Payment.aggregate([{ $match: { ...paymentFilter, status: 'completed', createdAt: { $gte: startOfCurrentMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
       Route.countDocuments({ status: 'active' }),
-      User.countDocuments()
+      // Only show user stats for non-residents
+      req.user.role !== 'resident' ? User.countDocuments() : Promise.resolve(0),
+      req.user.role !== 'resident' ? User.countDocuments({ createdAt: { $lte: endOfLastMonth } }) : Promise.resolve(0),
+      req.user.role !== 'resident' ? User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]) : Promise.resolve([])
     ]);
-    res.json({ success: true, data: { bins: { total: totalBins, active: activeBins, needingCollection: binsNeedingCollection }, collections: { total: totalCollections, today: todayCollections }, pickups: { total: totalPickups, pending: pendingPickups }, tickets: { total: totalTickets, open: openTickets }, revenue: { total: totalRevenue[0]?.total || 0, monthly: monthlyRevenue[0]?.total || 0 }, routes: { active: activeRoutes }, users: { total: totalUsers } } });
+
+    // Calculate percentage changes
+    const calculateChange = (current, previous) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Number((((current - previous) / previous) * 100).toFixed(1));
+    };
+
+    const binsChange = 0; // Bins don't change frequently, keep at 0 or calculate from creation dates
+    const collectionsChange = calculateChange(currentMonthCollections, lastMonthCollections);
+    const pickupsChange = calculateChange(currentMonthPickups, lastMonthPickups);
+    const ticketsChange = calculateChange(currentMonthTickets, lastMonthTickets);
+    const revenueChange = calculateChange(monthlyRevenue[0]?.total || 0, 0); // Would need last month revenue
+    const usersChange = calculateChange(totalUsers, lastMonthUsers);
+
+    // Parse user role counts
+    const roleBreakdown = {
+      admins: 0,
+      collectors: 0,
+      residents: 0,
+      operators: 0,
+      authorities: 0
+    };
+
+    usersByRole.forEach(role => {
+      if (role._id === 'admin') roleBreakdown.admins = role.count;
+      else if (role._id === 'collector') roleBreakdown.collectors = role.count;
+      else if (role._id === 'resident') roleBreakdown.residents = role.count;
+      else if (role._id === 'operator') roleBreakdown.operators = role.count;
+      else if (role._id === 'authority') roleBreakdown.authorities = role.count;
+    });
+
+    res.json({ 
+      success: true, 
+      data: { 
+        bins: { total: totalBins, active: activeBins, needingCollection: binsNeedingCollection, change: binsChange }, 
+        collections: { total: totalCollections, today: todayCollections, change: collectionsChange }, 
+        pickups: { total: totalPickups, pending: pendingPickups, change: pickupsChange }, 
+        tickets: { total: totalTickets, open: openTickets, change: ticketsChange }, 
+        revenue: { total: totalRevenue[0]?.total || 0, monthly: monthlyRevenue[0]?.total || 0, change: revenueChange }, 
+        routes: { active: activeRoutes }, 
+        users: { 
+          total: totalUsers, 
+          change: usersChange,
+          ...roleBreakdown
+        } 
+      } 
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error fetching dashboard statistics', error: error.message });
   }

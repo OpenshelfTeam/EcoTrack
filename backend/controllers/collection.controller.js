@@ -1,6 +1,8 @@
 ﻿import CollectionRecord from '../models/CollectionRecord.model.js';
 import Route from '../models/Route.model.js';
 import SmartBin from '../models/SmartBin.model.js';
+import Notification from '../models/Notification.model.js';
+import User from '../models/User.model.js';
 
 // @desc    Get all collection records with filtering
 // @route   GET /api/collections
@@ -114,7 +116,10 @@ export const createCollectionRecord = async (req, res) => {
       status,
       notes,
       verificationCode,
-      location
+      location,
+      exceptionReported,
+      exceptionReason,
+      exceptionDescription
     } = req.body;
 
     const route = await Route.findById(routeId);
@@ -122,16 +127,25 @@ export const createCollectionRecord = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Route not found' });
     }
 
-    const bin = await SmartBin.findById(binId).populate('assignedTo');
+    const bin = await SmartBin.findById(binId).populate('createdBy');
     if (!bin) {
       return res.status(404).json({ success: false, message: 'Bin not found' });
     }
+
+    // Prepare exception data if reported
+    const exceptionData = exceptionReported === 'true' || exceptionReported === true ? {
+      reported: true,
+      reason: exceptionReason || 'Unknown',
+      description: exceptionDescription || '',
+    } : {
+      reported: false
+    };
 
     const record = await CollectionRecord.create({
       route: routeId,
       bin: binId,
       collector: req.user._id,
-      resident: bin.assignedTo ? bin.assignedTo._id : null,
+      resident: bin.createdBy ? bin.createdBy._id : null,
       collectionDate: new Date(),
       wasteWeight: wasteWeight || 0,
       wasteType: wasteType || bin.binType,
@@ -140,9 +154,11 @@ export const createCollectionRecord = async (req, res) => {
       status: status || 'collected',
       location: location || bin.location,
       notes,
-      verificationCode
+      verificationCode,
+      exception: exceptionData
     });
 
+    // Update bin status based on collection type
     if (status === 'collected') {
       bin.currentLevel = binLevelAfter !== undefined ? binLevelAfter : 0;
       bin.lastEmptied = new Date();
@@ -150,6 +166,10 @@ export const createCollectionRecord = async (req, res) => {
       
       route.collectedBins = (route.collectedBins || 0) + 1;
       await route.save();
+    } else if (status === 'exception') {
+      // Mark bin as needing attention
+      bin.status = 'maintenance-required';
+      await bin.save();
     }
 
     const populatedRecord = await CollectionRecord.findById(record._id)
@@ -157,6 +177,85 @@ export const createCollectionRecord = async (req, res) => {
       .populate('collector', 'firstName lastName email')
       .populate('resident', 'firstName lastName email')
       .populate('route', 'routeName routeCode');
+
+    // Send notifications to resident and admins
+    try {
+      const notifications = [];
+      
+      // Notification to resident (bin owner)
+      if (bin.createdBy) {
+        let notificationMessage = '';
+        let notificationTitle = '';
+        let notificationType = 'collection';
+        
+        if (status === 'collected') {
+          notificationTitle = '✅ Bin Collected Successfully';
+          notificationMessage = `Your bin at ${bin.location?.address || 'your location'} has been collected. Thank you for using EcoTrack!`;
+        } else if (status === 'empty') {
+          notificationTitle = '📭 Bin Was Empty';
+          notificationMessage = `Your bin at ${bin.location?.address || 'your location'} was checked but found to be empty.`;
+        } else if (status === 'exception') {
+          notificationTitle = '⚠️ Bin Requires Attention';
+          notificationMessage = `Your bin at ${bin.location?.address || 'your location'} needs attention. ${exceptionDescription || 'Please check the bin status.'}`;
+          notificationType = 'system';
+        }
+        
+        notifications.push({
+          recipient: bin.createdBy._id,
+          type: notificationType,
+          title: notificationTitle,
+          message: notificationMessage,
+          data: {
+            collectionId: record._id,
+            binId: bin._id,
+            status,
+            collectorName: `${req.user.firstName} ${req.user.lastName}`,
+            collectionDate: new Date()
+          },
+          priority: status === 'exception' ? 'high' : 'normal'
+        });
+      }
+      
+      // Notifications to all admins
+      const admins = await User.find({ 
+        role: { $in: ['admin', 'authority'] },
+        isActive: true 
+      }).select('_id');
+      
+      admins.forEach(admin => {
+        let adminMessage = '';
+        if (status === 'collected') {
+          adminMessage = `Bin ${bin.binId} collected by ${req.user.firstName} ${req.user.lastName} on route ${route.routeName}.`;
+        } else if (status === 'empty') {
+          adminMessage = `Bin ${bin.binId} was empty during collection on route ${route.routeName}.`;
+        } else if (status === 'exception') {
+          adminMessage = `⚠️ Exception reported for bin ${bin.binId} on route ${route.routeName}: ${exceptionDescription || 'Issue needs attention'}`;
+        }
+        
+        notifications.push({
+          recipient: admin._id,
+          type: status === 'exception' ? 'system' : 'collection',
+          title: status === 'exception' ? 'Collection Exception Reported' : 'Bin Collection Update',
+          message: adminMessage,
+          data: {
+            collectionId: record._id,
+            binId: bin._id,
+            routeId: route._id,
+            status,
+            collectorId: req.user._id
+          },
+          priority: status === 'exception' ? 'high' : 'low'
+        });
+      });
+      
+      // Send all notifications
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+      }
+    } catch (notifError) {
+      console.error('Failed to send notifications:', notifError);
+      // Don't fail the collection if notification fails
+    }
 
     res.status(201).json({ success: true, data: populatedRecord, message: 'Collection recorded successfully' });
   } catch (error) {

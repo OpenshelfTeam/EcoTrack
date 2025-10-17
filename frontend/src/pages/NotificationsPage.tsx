@@ -140,13 +140,13 @@ export const NotificationsPage = () => {
   // Statistics
   const stats = {
     total: notifications.length,
-    unread: notifications.filter((n: any) => !n.read).length,
+    unread: notifications.filter((n: any) => !n.readAt).length,
     today: notifications.filter((n: any) => {
-      const notifDate = new Date(n.timestamp);
+      const notifDate = new Date(n.sentAt || n.createdAt);
       const today = new Date();
       return notifDate.toDateString() === today.toDateString();
     }).length,
-    high: notifications.filter((n: any) => n.priority === 'high' && !n.read).length
+    high: notifications.filter((n: any) => (n.priority === 'high' || n.priority === 'urgent') && !n.readAt).length
   };
 
   const getTypeIcon = (type: string) => {

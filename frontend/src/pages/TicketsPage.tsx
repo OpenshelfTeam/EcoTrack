@@ -176,7 +176,7 @@ export const TicketsPage = () => {
   const [newTicket, setNewTicket] = useState({
     title: '',
     description: '',
-    category: 'complaint' as const,
+    category: 'other' as const,
     priority: 'medium' as const
   });
 
@@ -334,7 +334,7 @@ export const TicketsPage = () => {
     setNewTicket({
       title: '',
       description: '',
-      category: 'complaint',
+      category: 'other',
       priority: 'medium'
     });
   };
@@ -548,7 +548,7 @@ export const TicketsPage = () => {
                             {ticket.status.replace('_', ' ')}
                           </span>
                         </div>
-                        <h3 className="mb-1 text-lg font-semibold text-gray-900">{ticket.title}</h3>
+                        <h3 className="font-semibold text-gray-900 text-lg mb-1">{ticket.title}</h3>
                         <p className="text-sm text-gray-600 line-clamp-2">{ticket.description}</p>
                       </div>
                     </div>
@@ -634,11 +634,12 @@ export const TicketsPage = () => {
                     onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value as any })}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   >
-                    <option value="collection">Collection Issue</option>
-                    <option value="bin">Bin Issue</option>
-                    <option value="payment">Payment Issue</option>
-                    <option value="technical">Technical Issue</option>
-                    <option value="complaint">Complaint</option>
+                    <option value="damaged-bin">Damaged Bin</option>
+                    <option value="missed-pickup">Missed Pickup</option>
+                    <option value="payment-issue">Payment Issue</option>
+                    <option value="bin-not-delivered">Bin Not Delivered</option>
+                    <option value="collection-complaint">Collection Complaint</option>
+                    <option value="technical-issue">Technical Issue</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
@@ -721,82 +722,11 @@ export const TicketsPage = () => {
                 </span>
               </div>
 
-              {/* Title & Description - Editable for ticket owner */}
-              {isEditMode && user?.role === 'resident' && selectedTicket.reporter._id === user._id ? (
-                <div className="p-4 space-y-4 border-2 border-blue-200 rounded-lg bg-blue-50">
-                  <div>
-                    <label className="block mb-2 text-sm font-medium text-gray-700">Title *</label>
-                    <input
-                      type="text"
-                      value={editedTicket.title}
-                      onChange={(e) => setEditedTicket({ ...editedTicket, title: e.target.value })}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Brief description of the issue"
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-2 text-sm font-medium text-gray-700">Description *</label>
-                    <textarea
-                      value={editedTicket.description}
-                      onChange={(e) => setEditedTicket({ ...editedTicket, description: e.target.value })}
-                      rows={5}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Detailed description of your issue..."
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block mb-2 text-sm font-medium text-gray-700">Category *</label>
-                      <select
-                        value={editedTicket.category}
-                        onChange={(e) => setEditedTicket({ ...editedTicket, category: e.target.value })}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="collection">Collection Issue</option>
-                        <option value="bin">Bin Issue</option>
-                        <option value="payment">Payment Issue</option>
-                        <option value="technical">Technical Issue</option>
-                        <option value="complaint">Complaint</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block mb-2 text-sm font-medium text-gray-700">Priority *</label>
-                      <select
-                        value={editedTicket.priority}
-                        onChange={(e) => setEditedTicket({ ...editedTicket, priority: e.target.value })}
-                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
-                        <option value="urgent">Urgent</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 pt-2">
-                    <button
-                      onClick={handleSaveEdit}
-                      disabled={!editedTicket.title.trim() || !editedTicket.description.trim() || updateTicketMutation.isPending}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white transition-colors rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Save className="w-4 h-4" />
-                      {updateTicketMutation.isPending ? 'Saving...' : 'Save Changes'}
-                    </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 transition-colors border border-gray-300 rounded-lg hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <h3 className="mb-3 text-xl font-bold text-gray-900">{selectedTicket.title}</h3>
-                  <p className="leading-relaxed text-gray-700">{selectedTicket.description}</p>
-                </div>
-              )}
+              {/* Title & Description */}
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">{selectedTicket.title}</h3>
+                <p className="text-gray-700 leading-relaxed">{selectedTicket.description}</p>
+              </div>
 
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">

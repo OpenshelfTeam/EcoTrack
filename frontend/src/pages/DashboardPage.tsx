@@ -1,16 +1,118 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
+import { useQuery } from '@tanstack/react-query';
+import { analyticsService } from '../services/analytics.service';
+import { routeService } from '../services/route.service';
+import { collectionService } from '../services/collection.service';
+import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Truck, AlertCircle, DollarSign, TrendingUp, ArrowUp, 
-  ArrowDown, Clock, Calendar, MapPin, Bell, BarChart3,
-  ChevronRight, CheckCircle, Users, Map, Leaf
+  ArrowDown, Clock, MapPin, Bell, BarChart3,
+  ChevronRight, CheckCircle, Users, Leaf, Shield, UserCog,
+  Camera, QrCode, Image
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [animation, setAnimation] = useState(false);
+  
+  // Modal states for exception reporting
+  const [currentBin, setCurrentBin] = useState<any>(null);
+  const [showBinScanner, setShowBinScanner] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showExceptionReport, setShowExceptionReport] = useState(false);
+
+  // Fetch dashboard statistics
+  const { data: dashboardData, isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => analyticsService.getDashboardStats(),
+    refetchInterval: 60000, // Refetch every minute
+  });
+
+  // Fetch collector-specific route statistics
+  const { data: routeStatsData, isLoading: routeStatsLoading } = useQuery({
+    queryKey: ['route-stats'],
+    queryFn: () => routeService.getRouteStats(),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch collector-specific collection statistics
+  const { data: collectionStatsData, isLoading: collectionStatsLoading } = useQuery({
+    queryKey: ['collection-stats'],
+    queryFn: () => collectionService.getCollectionStats(),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch today's routes for collector
+  const { data: todayRoutesData } = useQuery({
+    queryKey: ['today-routes'],
+    queryFn: () => routeService.getAllRoutes({ 
+      status: 'in-progress',
+      scheduledDate: new Date().toISOString().split('T')[0]
+    }),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000,
+  });
+
+  // Fetch recent collections for activity feed
+  const { data: recentCollectionsData } = useQuery({
+    queryKey: ['recent-collections'],
+    queryFn: () => collectionService.getAllCollections({
+      limit: 5,
+      sort: '-collectionDate'
+    }),
+    enabled: user?.role === 'collector',
+    refetchInterval: 30000,
+  });
+
+  const stats = dashboardData?.data || {
+    bins: { total: 0, active: 0, needingCollection: 0, change: 0 },
+    collections: { total: 0, today: 0, change: 0 },
+    pickups: { total: 0, pending: 0, change: 0 },
+    tickets: { total: 0, open: 0, change: 0 },
+    revenue: { total: 0, monthly: 0, change: 0 },
+    routes: { active: 0 },
+    users: { total: 0, change: 0 }
+  };
+
+  // Collector-specific stats
+  const routeStats = routeStatsData?.data || {
+    total: 0,
+    pending: 0,
+    'in-progress': 0,
+    completed: 0,
+    todayRoutes: 0,
+    totalBinsCollected: 0,
+    completedRoutes: 0
+  };
+
+  const collectionStats = collectionStatsData?.data || {
+    total: 0,
+    collected: 0,
+    todayCollections: 0,
+    weekCollections: 0,
+    totalWeightCollected: 0
+  };
+
+  const todayRoutes = todayRoutesData?.data || [];
+  const recentCollections = recentCollectionsData?.data || [];
+
+  // Fetch efficiency metrics
+  const { data: efficiencyData } = useQuery({
+    queryKey: ['efficiency-metrics'],
+    queryFn: () => analyticsService.getEfficiencyMetrics(),
+    refetchInterval: 300000, // Refetch every 5 minutes
+  });
+
+  const efficiency = efficiencyData?.data || {
+    routeEfficiency: {},
+    collectorPerformance: [],
+    binUtilization: []
+  };
 
   // Update time every minute
   useEffect(() => {
@@ -19,19 +121,6 @@ export const DashboardPage: React.FC = () => {
     }, 60000);
     return () => clearInterval(timer);
   }, []);
-
-  // Initial loading animation
-  useEffect(() => {
-    setAnimation(true);
-  }, []);
-
-  // Format date for header
-  const formattedDate = currentTime.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric'
-  });
 
   // Enhanced stat card with animations and 3D effects
   const StatCard = ({ icon: Icon, title, value, subtitle, color, trend, bgGradient, delay = 0 }: any) => (
@@ -195,140 +284,164 @@ export const DashboardPage: React.FC = () => {
         
         {/* Stats Grid - Resident */}
         {user?.role === 'resident' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Trash2}
-              title="Active Bins"
-              value="2"
-              subtitle="All bins assigned"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={0}
-              delay={100}
-            />
-            <StatCard
-              icon={Truck}
-              title="Next Pickup"
-              value="Tomorrow"
-              subtitle="10:00 AM - 12:00 PM"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={null}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Open Tickets"
-              value="1"
-              subtitle="View details"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={null}
-              delay={300}
-            />
-            <StatCard
-              icon={DollarSign}
-              title="Payment Due"
-              value="$25"
-              subtitle="Due in 5 days"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={null}
-              delay={400}
-            />
-          </div>
+          statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Trash2}
+                title="Active Bins"
+                value={stats.bins?.active?.toLocaleString() || '0'}
+                subtitle="All bins assigned"
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={0}
+                delay={100}
+              />
+              <StatCard
+                icon={Truck}
+                title="Next Pickup"
+                value={stats.pickups?.pending > 0 ? 'Scheduled' : 'None'}
+                subtitle={stats.pickups?.pending > 0 ? `${stats.pickups.pending} pending` : 'No pickups scheduled'}
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={null}
+                delay={200}
+              />
+              <StatCard
+                icon={AlertCircle}
+                title="Open Tickets"
+                value={stats.tickets?.open?.toLocaleString() || '0'}
+                subtitle="View details"
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={null}
+                delay={300}
+              />
+              <StatCard
+                icon={DollarSign}
+                title="Total Payments"
+                value={`$${stats.revenue?.monthly || 0}`}
+                subtitle="This month"
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={null}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Stats Grid - Collector */}
         {user?.role === 'collector' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Truck}
-              title="Routes Today"
-              value="3"
-              subtitle="2 completed"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={null}
-              delay={100}
-            />
-            <StatCard
-              icon={Trash2}
-              title="Collections"
-              value="45"
-              subtitle="Today"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={12}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Exceptions"
-              value="2"
-              subtitle="Need attention"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={-25}
-              delay={300}
-            />
-            <StatCard
-              icon={TrendingUp}
-              title="Completion"
-              value="89%"
-              subtitle="This week"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={5}
-              delay={400}
-            />
-          </div>
+          statsLoading || routeStatsLoading || collectionStatsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Truck}
+                title="Active Routes"
+                value={routeStats['in-progress']?.toLocaleString() || '0'}
+                subtitle="Assigned to you"
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={null}
+                delay={100}
+              />
+              <StatCard
+                icon={Trash2}
+                title="Collections"
+                value={collectionStats.todayCollections?.toLocaleString() || '0'}
+                subtitle="Today"
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={null}
+                delay={200}
+              />
+              <StatCard
+                icon={CheckCircle}
+                title="Pending Issues"
+                value={routeStats.pending?.toLocaleString() || '0'}
+                subtitle="Routes pending"
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={null}
+                delay={300}
+              />
+              <StatCard
+                icon={TrendingUp}
+                title="Completion"
+                value={`${routeStats.completedRoutes || 0}`}
+                subtitle={`Total completed`}
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={null}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Stats Grid - Authority/Operator */}
         {(user?.role === 'authority' || user?.role === 'operator' || user?.role === 'admin') && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={Trash2}
-              title="Total Bins"
-              value="450"
-              subtitle="405 active"
-              color="text-emerald-600"
-              bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-              trend={3}
-              delay={100}
-            />
-            <StatCard
-              icon={Truck}
-              title="Collections"
-              value="128"
-              subtitle="Today"
-              color="text-blue-600"
-              bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
-              trend={8}
-              delay={200}
-            />
-            <StatCard
-              icon={AlertCircle}
-              title="Open Tickets"
-              value="15"
-              subtitle="5 high priority"
-              color="text-orange-600"
-              bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
-              trend={-10}
-              delay={300}
-            />
-            <StatCard
-              icon={TrendingUp}
-              title="Efficiency"
-              value="94%"
-              subtitle="+2% from last week"
-              color="text-purple-600"
-              bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
-              trend={2}
-              delay={400}
-            />
-          </div>
+          statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-gradient-to-br from-gray-200 to-gray-300 rounded-3xl p-7 animate-pulse h-48"></div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={Trash2}
+                title="Total Bins"
+                value={stats.bins?.total?.toLocaleString() || '0'}
+                subtitle={`${stats.bins?.active || 0} active`}
+                color="text-emerald-600"
+                bgGradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+                trend={stats.bins?.change || 0}
+                delay={100}
+              />
+              <StatCard
+                icon={Truck}
+                title="Collections"
+                value={stats.collections?.today?.toLocaleString() || '0'}
+                subtitle="Today"
+                color="text-blue-600"
+                bgGradient="bg-gradient-to-br from-blue-500 to-indigo-600"
+                trend={stats.collections?.change || 0}
+                delay={200}
+              />
+              <StatCard
+                icon={AlertCircle}
+                title="Open Tickets"
+                value={stats.tickets?.open?.toLocaleString() || '0'}
+                subtitle={`${stats.tickets?.total || 0} total tickets`}
+                color="text-orange-600"
+                bgGradient="bg-gradient-to-br from-orange-500 to-red-600"
+                trend={stats.tickets?.change || 0}
+                delay={300}
+              />
+              <StatCard
+                icon={TrendingUp}
+                title="Efficiency"
+                value={`${Math.round(efficiency.routeEfficiency?.completionRate || 0)}%`}
+                subtitle="Route completion rate"
+                color="text-purple-600"
+                bgGradient="bg-gradient-to-br from-purple-500 to-pink-600"
+                trend={2}
+                delay={400}
+              />
+            </div>
+          )
         )}
 
         {/* Recent Activity & Quick Actions */}
@@ -348,7 +461,63 @@ export const DashboardPage: React.FC = () => {
               </button>
             </div>
             <div className="space-y-5">
-              {[
+              {user?.role === 'collector' && recentCollections.length > 0 ? (
+                recentCollections.map((collection: any, i: number) => {
+                  const getTimeAgo = (date: string) => {
+                    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
+                    if (seconds < 60) return 'Just now';
+                    if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+                    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+                    return `${Math.floor(seconds / 86400)} days ago`;
+                  };
+
+                  const getStatusColor = (status: string) => {
+                    switch (status) {
+                      case 'collected': return { color: 'bg-emerald-500', light: 'bg-emerald-100' };
+                      case 'empty': return { color: 'bg-blue-500', light: 'bg-blue-100' };
+                      case 'exception': return { color: 'bg-orange-500', light: 'bg-orange-100' };
+                      default: return { color: 'bg-gray-500', light: 'bg-gray-100' };
+                    }
+                  };
+
+                  const colors = getStatusColor(collection.status);
+
+                  return (
+                    <div 
+                      key={collection._id} 
+                      className="group flex items-start gap-4 p-5 bg-gradient-to-br from-gray-50 via-white to-gray-50 rounded-2xl hover:shadow-lg transition-all duration-300 border border-gray-100 animate-fadeIn"
+                      style={{ animationDelay: `${i * 150}ms` }}
+                    >
+                      <div className={`relative p-3 ${colors.light} rounded-2xl shadow-md group-hover:shadow-lg transition-all duration-300 group-hover:scale-110`}>
+                        <div className={`absolute inset-0 ${colors.color} opacity-0 group-hover:opacity-30 blur-xl transition-all duration-500 rounded-full`}></div>
+                        <Trash2 className={`h-6 w-6 relative z-10 ${colors.color.replace('bg-', 'text-')}`} />
+                      </div>
+                      <div className="flex-1 min-w-0 transform transition-transform duration-300 group-hover:translate-x-1">
+                        <p className="font-semibold text-gray-900 mb-1.5 text-lg">
+                          Bin {collection.bin?.binId || 'Unknown'} - {collection.status === 'collected' ? 'Collected' : collection.status === 'empty' ? 'Empty' : 'Exception Reported'}
+                        </p>
+                        <p className="text-sm text-gray-600 mb-3">
+                          Route: {collection.route?.routeName || 'N/A'} • Weight: {collection.wasteWeight || 0} kg
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 font-medium px-2.5 py-1 rounded-full bg-gray-100 w-fit">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>{getTimeAgo(collection.collectionDate)}</span>
+                        </div>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <ChevronRight className="h-5 w-5 text-gray-400" />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : user?.role === 'collector' ? (
+                <div className="text-center py-12">
+                  <Trash2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No recent collections</p>
+                  <p className="text-sm text-gray-400 mt-1">Start a route to record collections</p>
+                </div>
+              ) : (
+              [
                 { icon: Trash2, title: 'Waste collection completed', desc: 'Route #1 - Collected 45 bins', time: '2 hours ago', color: 'bg-emerald-500', colorLight: 'bg-emerald-100' },
                 { icon: Truck, title: 'Route assigned', desc: 'New route for tomorrow morning', time: '4 hours ago', color: 'bg-blue-500', colorLight: 'bg-blue-100' },
                 { icon: AlertCircle, title: 'Ticket resolved', desc: 'Missed collection issue fixed', time: '6 hours ago', color: 'bg-orange-500', colorLight: 'bg-orange-100' },
@@ -378,7 +547,8 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </div>
                 );
-              })}
+              })
+              )}
             </div>
           </div>
 
@@ -417,14 +587,15 @@ export const DashboardPage: React.FC = () => {
               })}
               
               {user?.role === 'collector' && [
-                { icon: Truck, label: 'Start Route', color: 'from-blue-500 to-indigo-600', desc: 'Begin your collection journey' },
-                { icon: Trash2, label: 'Record Collection', color: 'from-emerald-500 to-teal-600', desc: 'Log completed bin collections' },
-                { icon: AlertCircle, label: 'Report Exception', color: 'from-orange-500 to-red-600', desc: 'Report issues encountered' },
+                { icon: Truck, label: 'Start Route', color: 'from-blue-500 to-indigo-600', desc: 'Begin your collection journey', path: '/routes' },
+                { icon: Trash2, label: 'View Routes', color: 'from-emerald-500 to-teal-600', desc: 'See all collection routes', path: '/routes' },
+                { icon: AlertCircle, label: 'Report Exception', color: 'from-orange-500 to-red-600', desc: 'Report issues encountered', path: '/tickets' },
               ].map((action, i) => {
                 const Icon = action.icon;
                 return (
                   <button
                     key={i}
+                    onClick={() => navigate(action.path)}
                     className={`group w-full flex items-center gap-4 p-5 bg-gradient-to-r ${action.color} text-white rounded-2xl hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3)] transition-all duration-500 transform hover:translate-y-[-2px] hover:scale-[1.01] relative overflow-hidden animate-fadeIn`}
                     style={{ animationDelay: `${i * 150}ms` }}
                   >
@@ -442,14 +613,15 @@ export const DashboardPage: React.FC = () => {
               })}
 
               {(user?.role === 'authority' || user?.role === 'operator' || user?.role === 'admin') && [
-                { icon: BarChart3, label: 'View Analytics', color: 'from-purple-500 to-pink-600', desc: 'Review system performance metrics' },
-                { icon: AlertCircle, label: 'Manage Tickets', color: 'from-orange-500 to-red-600', desc: 'Handle resident complaints & issues' },
-                { icon: Trash2, label: 'Monitor Bins', color: 'from-emerald-500 to-teal-600', desc: 'Check bin status & locations' },
+                { icon: BarChart3, label: 'View Analytics', color: 'from-purple-500 to-pink-600', desc: 'Review system performance metrics', path: '/analytics' },
+                { icon: AlertCircle, label: 'Manage Tickets', color: 'from-orange-500 to-red-600', desc: 'Handle resident complaints & issues', path: '/tickets' },
+                { icon: Trash2, label: 'Monitor Bins', color: 'from-emerald-500 to-teal-600', desc: 'Check bin status & locations', path: '/bins' },
               ].map((action, i) => {
                 const Icon = action.icon;
                 return (
                   <button
                     key={i}
+                    onClick={() => navigate(action.path)}
                     className={`group w-full flex items-center gap-4 p-5 bg-gradient-to-r ${action.color} text-white rounded-2xl hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3)] transition-all duration-500 transform hover:translate-y-[-2px] hover:scale-[1.01] relative overflow-hidden animate-fadeIn`}
                     style={{ animationDelay: `${i * 150}ms` }}
                   >
@@ -468,7 +640,307 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* User Management Section - Admin Only */}
+        {(user?.role === 'admin' || user?.role === 'operator') && (
+          <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-3xl shadow-xl p-8 border border-indigo-100 hover:shadow-2xl transition-all duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl text-white shadow-lg">
+                    <UserCog className="h-6 w-6" />
+                  </div>
+                  User Management
+                </h2>
+                <p className="text-gray-600 mt-2">Manage system users, roles, and permissions</p>
+              </div>
+              <button
+                onClick={() => navigate('/users')}
+                className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                Manage Users
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-xl">
+                    <Users className="h-7 w-7 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">Total Users</p>
+                    <p className="text-3xl font-bold text-gray-900">{stats.users?.total || 0}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full" style={{ width: '100%' }}></div>
+                  </div>
+                  <span className="text-xs font-medium text-gray-600">All roles</span>
+                </div>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-xl">
+                    <CheckCircle className="h-7 w-7 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">Active Users</p>
+                    <p className="text-3xl font-bold text-gray-900">{(stats.users?.total || 0) - (stats.users?.inactive || 0)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-2 rounded-full" style={{ width: `${((stats.users?.total || 0) - (stats.users?.inactive || 0)) / (stats.users?.total || 1) * 100}%` }}></div>
+                  </div>
+                  <span className="text-xs font-medium text-gray-600">{Math.round(((stats.users?.total || 0) - (stats.users?.inactive || 0)) / (stats.users?.total || 1) * 100)}%</span>
+                </div>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-indigo-100 hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="p-3.5 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl">
+                    <Shield className="h-7 w-7 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600 font-medium">New This Month</p>
+                    <p className="text-3xl font-bold text-gray-900">+{Math.abs(stats.users?.change || 0)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <ArrowUp className="h-4 w-4 text-emerald-600" />
+                  <span className="text-xs font-medium text-emerald-600">{stats.users?.change || 0}% growth</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.admins || 0}</p>
+                <p className="text-sm text-purple-100">Admins</p>
+              </div>
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.collectors || 0}</p>
+                <p className="text-sm text-blue-100">Collectors</p>
+              </div>
+              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.residents || 0}</p>
+                <p className="text-sm text-emerald-100">Residents</p>
+              </div>
+              <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-xl p-4 text-center transform hover:scale-105 transition-transform duration-200">
+                <p className="text-2xl font-bold">{stats.users?.operators || 0}</p>
+                <p className="text-sm text-orange-100">Operators</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Bin Scanner Modal */}
+      {showBinScanner && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-xl">
+                  <QrCode className="h-6 w-6 text-blue-600" />
+                </div>
+                Scan Bin
+              </h3>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+            
+            {/* Scanner Area */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 mb-6 border-2 border-dashed border-blue-300">
+              <div className="text-center">
+                <QrCode className="h-24 w-24 text-blue-400 mx-auto mb-4 animate-pulse" />
+                <p className="text-gray-700 font-medium mb-2">Position QR code within frame</p>
+                <p className="text-sm text-gray-500">or tap NFC-enabled bin</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setCurrentBin({ id: 'BIN-' + Math.random().toString(36).substr(2, 9), location: 'Main St & 5th Ave' });
+                  setShowBinScanner(false);
+                  setShowStatusModal(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Simulate Scan
+              </button>
+              <button
+                onClick={() => setShowBinScanner(false)}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bin Status Modal */}
+      {showStatusModal && currentBin && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <Trash2 className="h-6 w-6 text-emerald-600" />
+                </div>
+                Mark Bin Status
+              </h3>
+              <button
+                onClick={() => {
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <p className="text-sm text-gray-600">Bin ID</p>
+              <p className="text-lg font-bold text-gray-800">{currentBin.id}</p>
+              <p className="text-sm text-gray-600 mt-2">Location</p>
+              <p className="text-gray-700">{currentBin.location}</p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  alert('Bin marked as collected! Owner will be notified.');
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="h-5 w-5" />
+                Mark as Collected
+              </button>
+              <button
+                onClick={() => {
+                  alert('Bin marked as empty!');
+                  setShowStatusModal(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                No Garbage Found
+              </button>
+              <button
+                onClick={() => {
+                  setShowStatusModal(false);
+                  setShowExceptionReport(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Report as Damaged
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exception Report Modal */}
+      {showExceptionReport && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-xl">
+                  <Camera className="h-6 w-6 text-orange-600" />
+                </div>
+                Report Exception
+              </h3>
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <span className="text-2xl text-gray-400">×</span>
+              </button>
+            </div>
+
+            {currentBin && (
+              <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+                <p className="text-sm text-gray-600">Bin ID</p>
+                <p className="text-lg font-bold text-gray-800">{currentBin.id}</p>
+              </div>
+            )}
+
+            <div className="space-y-4 mb-6">
+              {/* Photo Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Photo</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-orange-400 transition-colors cursor-pointer bg-gray-50">
+                  <Image className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                  <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 10MB</p>
+                </div>
+              </div>
+
+              {/* Issue Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Issue Type</label>
+                <select className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent">
+                  <option>Bin Damaged</option>
+                  <option>Bin Inaccessible</option>
+                  <option>Bin Missing</option>
+                  <option>Hazardous Material</option>
+                  <option>Other</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                <textarea
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  rows={4}
+                  placeholder="Describe the issue in detail..."
+                ></textarea>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                  alert('Exception report submitted successfully!');
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Submit Report
+              </button>
+              <button
+                onClick={() => {
+                  setShowExceptionReport(false);
+                  setCurrentBin(null);
+                }}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };

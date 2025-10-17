@@ -84,10 +84,200 @@ export const AnalyticsPage = () => {
 
   const handleExport = async (type: 'collections' | 'pickups' | 'payments') => {
     try {
-      await analyticsService.exportAnalytics(type, dateRange.startDate, dateRange.endDate);
-      alert(`${type} data exported successfully!`);
+      const response = await analyticsService.exportAnalytics(
+        type, 
+        dateRange.startDate || undefined, 
+        dateRange.endDate || undefined
+      );
+      
+      const data = response.data;
+      
+      if (!data || data.length === 0) {
+        alert(`No ${type} data available for the selected date range.`);
+        return;
+      }
+
+      // Generate CSV content based on type
+      let csvContent = '';
+      
+      switch (type) {
+        case 'collections':
+          csvContent = 'Collection ID,Bin ID,Collector,Resident,Route,Collection Date,Waste Type,Waste Weight,Status\n';
+          data.forEach((item: any) => {
+            csvContent += `${item._id || ''},`;
+            csvContent += `${item.bin?._id || ''},`;
+            csvContent += `${item.collector?.name || ''},`;
+            csvContent += `${item.resident?.name || ''},`;
+            csvContent += `${item.route?.name || ''},`;
+            csvContent += `${item.collectionDate ? new Date(item.collectionDate).toLocaleDateString() : ''},`;
+            csvContent += `${item.wasteType || ''},`;
+            csvContent += `${item.wasteWeight || 0},`;
+            csvContent += `${item.status || ''}\n`;
+          });
+          break;
+          
+        case 'pickups':
+          csvContent = 'Pickup ID,Resident,Collector,Request Date,Scheduled Date,Status,Waste Type,Address,Notes\n';
+          data.forEach((item: any) => {
+            csvContent += `${item._id || ''},`;
+            csvContent += `${item.resident?.name || ''},`;
+            csvContent += `${item.collector?.name || ''},`;
+            csvContent += `${item.requestDate ? new Date(item.requestDate).toLocaleDateString() : ''},`;
+            csvContent += `${item.scheduledDate ? new Date(item.scheduledDate).toLocaleDateString() : ''},`;
+            csvContent += `${item.status || ''},`;
+            csvContent += `${item.wasteType || ''},`;
+            csvContent += `${item.address || ''},`;
+            csvContent += `"${(item.notes || '').replace(/"/g, '""')}"\n`;
+          });
+          break;
+          
+        case 'payments':
+          csvContent = 'Payment ID,User,Amount,Payment Method,Status,Type,Created Date,Description\n';
+          data.forEach((item: any) => {
+            csvContent += `${item._id || ''},`;
+            csvContent += `${item.user?.name || ''},`;
+            csvContent += `${item.amount || 0},`;
+            csvContent += `${item.paymentMethod || ''},`;
+            csvContent += `${item.status || ''},`;
+            csvContent += `${item.type || ''},`;
+            csvContent += `${item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''},`;
+            csvContent += `"${(item.description || '').replace(/"/g, '""')}"\n`;
+          });
+          break;
+      }
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const dateRangeStr = dateRange.startDate && dateRange.endDate 
+        ? `_${dateRange.startDate}_to_${dateRange.endDate}`
+        : `_${new Date().toISOString().split('T')[0]}`;
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `EcoTrack_${type}${dateRangeStr}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      alert(`${type.charAt(0).toUpperCase() + type.slice(1)} data exported successfully! (${data.length} records)`);
     } catch (error: any) {
+      console.error('Export failed:', error);
       alert('Failed to export data: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const handleExportReport = async () => {
+    try {
+      // Calculate date range based on selected timeRange
+      const endDate = new Date();
+      const startDate = new Date();
+      
+      switch (timeRange) {
+        case 'week':
+          startDate.setDate(endDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(endDate.getMonth() - 1);
+          break;
+        case 'quarter':
+          startDate.setMonth(endDate.getMonth() - 3);
+          break;
+        case 'year':
+          startDate.setFullYear(endDate.getFullYear() - 1);
+          break;
+      }
+
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      // Generate CSV content
+      let csvContent = 'EcoTrack Analytics Report\n';
+      csvContent += `Generated: ${new Date().toLocaleString()}\n`;
+      csvContent += `Period: ${timeRange.toUpperCase()}\n`;
+      csvContent += `Date Range: ${startDateStr} to ${endDateStr}\n\n`;
+
+      // Dashboard Statistics
+      csvContent += 'DASHBOARD STATISTICS\n';
+      csvContent += 'Metric,Value\n';
+      csvContent += `Total Bins,${stats.bins?.total || 0}\n`;
+      csvContent += `Active Bins,${stats.bins?.active || 0}\n`;
+      csvContent += `Bins Needing Collection,${stats.bins?.needingCollection || 0}\n`;
+      csvContent += `Total Collections,${stats.collections?.total || 0}\n`;
+      csvContent += `Collections Today,${stats.collections?.today || 0}\n`;
+      csvContent += `Total Pickups,${stats.pickups?.total || 0}\n`;
+      csvContent += `Pending Pickups,${stats.pickups?.pending || 0}\n`;
+      csvContent += `Total Tickets,${stats.tickets?.total || 0}\n`;
+      csvContent += `Open Tickets,${stats.tickets?.open || 0}\n`;
+      csvContent += `Total Revenue,$${stats.revenue?.total || 0}\n`;
+      csvContent += `Monthly Revenue,$${stats.revenue?.monthly || 0}\n`;
+      csvContent += `Active Routes,${stats.routes?.active || 0}\n`;
+      csvContent += `Total Users,${stats.users?.total || 0}\n\n`;
+
+      // Efficiency Metrics
+      csvContent += 'EFFICIENCY METRICS\n';
+      csvContent += 'Metric,Value\n';
+      csvContent += `Collection Rate,${efficiency.collectionRate || 0}%\n`;
+      csvContent += `On-Time Delivery,${efficiency.onTimeDelivery || 0}%\n`;
+      csvContent += `User Satisfaction,${efficiency.userSatisfaction || 0}%\n\n`;
+
+      // Financial Analytics
+      csvContent += 'FINANCIAL OVERVIEW\n';
+      csvContent += 'Category,Amount\n';
+      csvContent += `Monthly Revenue,$${financial.monthlyRevenue || stats.revenue?.monthly || 0}\n`;
+      csvContent += `Total Revenue,$${financial.totalRevenue || stats.revenue?.total || 0}\n`;
+      csvContent += `Collections Revenue,$${financial.collections || 0}\n`;
+      csvContent += `Pickups Revenue,$${financial.pickups || 0}\n`;
+      csvContent += `Penalties,$${financial.penalties || 0}\n\n`;
+
+      // User Engagement
+      csvContent += 'USER ENGAGEMENT\n';
+      csvContent += 'Metric,Value\n';
+      csvContent += `Active Users,${engagement.activeUsers || 0}\n`;
+      csvContent += `Total Logins,${engagement.totalLogins || 0}\n`;
+      csvContent += `Feedback Submitted,${engagement.feedbackCount || 0}\n`;
+      csvContent += `Open Tickets,${stats.tickets?.open || 0}\n\n`;
+
+      // Area Statistics
+      if (areas.length > 0) {
+        csvContent += 'AREA STATISTICS\n';
+        csvContent += 'Area,Collections,Bins\n';
+        areas.forEach((area: any, index: number) => {
+          csvContent += `${area.name || `Area ${index + 1}`},${area.collections || 0},${area.bins || 0}\n`;
+        });
+        csvContent += '\n';
+      }
+
+      // Waste Statistics
+      if (wasteStats.length > 0) {
+        csvContent += 'WASTE STATISTICS\n';
+        csvContent += 'Period,Total Amount (kg)\n';
+        wasteStats.forEach((item: any, index: number) => {
+          csvContent += `Period ${index + 1},${item.totalAmount || 0}\n`;
+        });
+      }
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `EcoTrack_Analytics_Report_${timeRange}_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      alert(`Analytics report for ${timeRange} exported successfully!`);
+    } catch (error: any) {
+      console.error('Export failed:', error);
+      alert('Failed to export report: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -144,7 +334,7 @@ export const AnalyticsPage = () => {
               <option value="year">This Year</option>
             </select>
             <button
-              onClick={() => alert('Export report functionality')}
+              onClick={handleExportReport}
               className="px-6 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center gap-2"
             >
               <Download className="w-5 h-5" />
@@ -158,38 +348,38 @@ export const AnalyticsPage = () => {
           <StatCard
             title="Total Bins"
             value={stats.bins?.total || 0}
-            change={5.2}
+            change={stats.bins?.change || 0}
             icon={Package}
           />
           <StatCard
             title="Active Bins"
             value={stats.bins?.active || 0}
-            change={3.1}
+            change={stats.bins?.change || 0}
             icon={Recycle}
           />
           <StatCard
             title="Total Revenue"
             value={stats.revenue?.total || 0}
-            change={12.4}
+            change={stats.revenue?.change || 0}
             icon={DollarSign}
             suffix=" USD"
           />
           <StatCard
             title="Total Users"
             value={stats.users?.total || 0}
-            change={5.8}
+            change={stats.users?.change || 0}
             icon={Users}
           />
           <StatCard
             title="Completed Collections"
             value={stats.collections?.total || 0}
-            change={6.7}
+            change={stats.collections?.change || 0}
             icon={Calendar}
           />
           <StatCard
             title="Pending Pickups"
             value={stats.pickups?.pending || 0}
-            change={-2.3}
+            change={stats.pickups?.change || 0}
             icon={Clock}
           />
         </div>
