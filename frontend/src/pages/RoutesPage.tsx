@@ -227,6 +227,19 @@ export const RoutesPage = () => {
     }
   });
 
+  // Auto-assign bins mutation
+  const autoAssignBinsMutation = useMutation({
+    mutationFn: ({ id, options }: { id: string; options?: any }) => 
+      routeService.autoAssignBins(id, options),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+      alert(data.message || 'Bins assigned successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to assign bins');
+    }
+  });
+
   // Loading state
   if (isLoading) {
     return (
@@ -290,6 +303,17 @@ export const RoutesPage = () => {
     optimizeMutation.mutate(route._id);
   };
 
+  const handleAutoAssignBins = (route: Route) => {
+    autoAssignBinsMutation.mutate({
+      id: route._id,
+      options: {
+        maxBins: 25, // Maximum bins to assign
+        maxDistance: 10, // Maximum distance in km from existing bins
+        prioritizeFull: true // Prioritize bins with high fill levels
+      }
+    });
+  };
+
   const handleStartRoute = (routeId: string) => {
     startMutation.mutate(routeId);
   };
@@ -347,9 +371,25 @@ export const RoutesPage = () => {
   };
 
   const handleMarkBinStatus = async (status: 'collected' | 'empty' | 'damaged') => {
-    if (!currentBin || !activeRoute) return;
+    if (!currentBin || !activeRoute) {
+      alert('Missing bin or route information');
+      return;
+    }
 
     try {
+      // Validate route ID
+      if (!activeRoute._id) {
+        alert('Invalid route ID');
+        console.error('Active route:', activeRoute);
+        return;
+      }
+
+      console.log('Recording collection:', {
+        routeId: activeRoute._id,
+        binId: currentBin._id,
+        status: status === 'damaged' ? 'exception' : status
+      });
+
       // Record collection in database
       await collectionService.recordBinCollection({
         route: activeRoute._id,
@@ -392,7 +432,9 @@ export const RoutesPage = () => {
         setCurrentBinIndex(currentBinIndex + 1);
       }
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to record bin collection');
+      console.error('Error recording collection:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to record bin collection';
+      alert(`Error: ${errorMessage}\n\nPlease check the console for more details.`);
     }
   };
 
@@ -768,6 +810,16 @@ export const RoutesPage = () => {
                         <Zap className="w-4 h-4" />
                         Optimize
                       </button>
+                      {route.status === 'pending' && (
+                        <button
+                          onClick={() => handleAutoAssignBins(route)}
+                          className="px-4 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium flex items-center gap-2"
+                          title="Automatically find and add nearby bins to this route"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add Nearby Bins
+                        </button>
+                      )}
                       <button
                         onClick={() => alert('Edit route functionality would be implemented here')}
                         className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium flex items-center gap-2"

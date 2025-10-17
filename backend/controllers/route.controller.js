@@ -710,6 +710,123 @@ export const getRouteStats = async (req, res) => {
   }
 };
 
+// @desc    Auto-assign nearby bins to a route based on area and priority
+// @route   POST /api/routes/:id/auto-assign-bins
+// @access  Private (Operator, Authority, Admin)
+export const autoAssignBins = async (req, res) => {
+  try {
+    const { maxBins = 20, maxDistance = 10, prioritizeFull = true } = req.body;
+    
+    const route = await Route.findById(req.params.id).populate('bins');
+
+    if (!route) {
+      return res.status(404).json({
+        success: false,
+        message: 'Route not found'
+      });
+    }
+
+    if (route.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'Can only auto-assign bins to pending routes'
+      });
+    }
+
+    // Get all bins in the same area that aren't already assigned
+    const existingBinIds = route.bins.map(b => b._id.toString());
+    
+    // Build query for available bins
+    const binQuery = {
+      _id: { $nin: existingBinIds },
+      status: { $in: ['active', 'full', 'maintenance-required'] }
+    };
+
+    // Filter by area if specified
+    if (route.area) {
+      binQuery['location.district'] = route.area;
+    }
+
+    const availableBins = await SmartBin.find(binQuery);
+
+    if (availableBins.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: route,
+        message: 'No additional bins available in this area'
+      });
+    }
+
+    // If route already has bins, find bins near existing ones
+    let selectedBins = [];
+    
+    if (route.bins.length > 0) {
+      // Calculate distances from existing bins
+      const binsWithDistance = availableBins.map(bin => {
+        // Find minimum distance to any bin in current route
+        let minDist = Infinity;
+        for (const routeBin of route.bins) {
+          if (routeBin.location?.coordinates && bin.location?.coordinates) {
+            const dist = calculateDistance(
+              routeBin.location.coordinates,
+              bin.location.coordinates
+            );
+            minDist = Math.min(minDist, dist);
+          }
+        }
+        return { bin, distance: minDist };
+      });
+
+      // Filter by distance and sort
+      selectedBins = binsWithDistance
+        .filter(item => item.distance <= maxDistance)
+        .sort((a, b) => {
+          if (prioritizeFull) {
+            // Prioritize by fill level, then distance
+            const levelDiff = (b.bin.currentLevel || 0) - (a.bin.currentLevel || 0);
+            return levelDiff !== 0 ? levelDiff : a.distance - b.distance;
+          }
+          return a.distance - b.distance;
+        })
+        .slice(0, maxBins - route.bins.length)
+        .map(item => item.bin._id);
+    } else {
+      // No existing bins, just get bins in area sorted by fill level
+      selectedBins = availableBins
+        .sort((a, b) => {
+          if (prioritizeFull) {
+            return (b.currentLevel || 0) - (a.currentLevel || 0);
+          }
+          return 0;
+        })
+        .slice(0, maxBins)
+        .map(bin => bin._id);
+    }
+
+    // Add selected bins to route
+    route.bins.push(...selectedBins);
+    route.totalBins = route.bins.length;
+    await route.save();
+
+    const updatedRoute = await Route.findById(route._id)
+      .populate('assignedCollector', 'firstName lastName email phone')
+      .populate('bins', 'binId location currentLevel binType status capacity');
+
+    res.json({
+      success: true,
+      data: updatedRoute,
+      message: `Added ${selectedBins.length} bins to route`
+    });
+  } catch (error) {
+    console.error('[AUTO-ASSIGN BINS ERROR]:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error auto-assigning bins',
+      error: error.message
+    });
+  }
+};
+
 // Helper function to calculate distance between two coordinates (Haversine formula)
 function calculateDistance(coords1, coords2) {
   const [lon1, lat1] = coords1;

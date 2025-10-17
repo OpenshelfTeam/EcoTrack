@@ -9,7 +9,8 @@ import {
   startRoute,
   completeRoute,
   optimizeRoute,
-  getRouteStats
+  getRouteStats,
+  autoAssignBins
 } from '../controllers/route.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -26,8 +27,9 @@ router.route('/')
   .get(getRoutes)
   .post(authorize('operator', 'authority', 'admin'), createRoute);
 
-// Optimize route
+// Optimize route and auto-assign bins
 router.post('/:id/optimize', authorize('operator', 'authority', 'admin'), optimizeRoute);
+router.post('/:id/auto-assign-bins', authorize('operator', 'authority', 'admin'), autoAssignBins);
 
 // Route status updates
 router.patch('/:id/status', updateRouteStatus);

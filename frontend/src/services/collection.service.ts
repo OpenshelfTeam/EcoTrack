@@ -92,31 +92,50 @@ export const collectionService = {
       photo?: File;
     };
   }) {
-    const formData = new FormData();
-    
-    formData.append('route', data.route);
-    formData.append('bin', data.bin);
-    formData.append('status', data.status);
-    
-    if (data.wasteWeight !== undefined) formData.append('wasteWeight', data.wasteWeight.toString());
-    if (data.binLevelBefore !== undefined) formData.append('binLevelBefore', data.binLevelBefore.toString());
-    if (data.binLevelAfter !== undefined) formData.append('binLevelAfter', data.binLevelAfter.toString());
-    if (data.notes) formData.append('notes', data.notes);
-    
-    if (data.exception) {
+    // If there's a photo exception, use FormData, otherwise use JSON
+    if (data.exception?.photo) {
+      const formData = new FormData();
+      
+      formData.append('route', data.route);
+      formData.append('bin', data.bin);
+      formData.append('status', data.status);
+      
+      if (data.wasteWeight !== undefined) formData.append('wasteWeight', data.wasteWeight.toString());
+      if (data.binLevelBefore !== undefined) formData.append('binLevelBefore', data.binLevelBefore.toString());
+      if (data.binLevelAfter !== undefined) formData.append('binLevelAfter', data.binLevelAfter.toString());
+      if (data.notes) formData.append('notes', data.notes);
+      
       formData.append('exceptionReported', 'true');
       formData.append('exceptionReason', data.exception.issueType);
       formData.append('exceptionDescription', data.exception.description);
-      if (data.exception.photo) {
-        formData.append('exceptionPhoto', data.exception.photo);
-      }
-    }
+      formData.append('exceptionPhoto', data.exception.photo);
 
-    const response = await api.post('/collections', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
+      const response = await api.post('/collections', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } else {
+      // Use JSON for simple collections without photos
+      const payload: any = {
+        route: data.route,
+        bin: data.bin,
+        status: data.status,
+        wasteWeight: data.wasteWeight,
+        binLevelBefore: data.binLevelBefore,
+        binLevelAfter: data.binLevelAfter,
+        notes: data.notes,
+      };
+
+      if (data.exception) {
+        payload.exceptionReported = true;
+        payload.exceptionReason = data.exception.issueType;
+        payload.exceptionDescription = data.exception.description;
+      }
+
+      const response = await api.post('/collections', payload);
+      return response.data;
+    }
   },
 };

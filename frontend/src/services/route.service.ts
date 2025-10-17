@@ -95,6 +95,11 @@ export const routeService = {
     return response.data;
   },
 
+  async autoAssignBins(id: string, options?: { maxBins?: number; maxDistance?: number; prioritizeFull?: boolean }) {
+    const response = await api.post(`/routes/${id}/auto-assign-bins`, options || {});
+    return response.data;
+  },
+
   async getRouteStats() {
     const response = await api.get('/routes/stats');
     return response.data;

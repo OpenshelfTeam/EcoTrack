@@ -122,9 +122,24 @@ export const createCollectionRecord = async (req, res) => {
       exceptionDescription
     } = req.body;
 
+    console.log('[CREATE COLLECTION] Request data:', { routeId, binId, status });
+
+    // Validate routeId format
+    if (!routeId || !routeId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.error('[CREATE COLLECTION] Invalid route ID format:', routeId);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid route ID format. Please ensure the route is properly loaded.' 
+      });
+    }
+
     const route = await Route.findById(routeId);
     if (!route) {
-      return res.status(404).json({ success: false, message: 'Route not found' });
+      console.error('[CREATE COLLECTION] Route not found:', routeId);
+      return res.status(404).json({ 
+        success: false, 
+        message: `Route not found (ID: ${routeId}). The route may have been deleted or does not exist.` 
+      });
     }
 
     const bin = await SmartBin.findById(binId).populate('createdBy');
