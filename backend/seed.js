@@ -121,6 +121,48 @@ const seedData = async () => {
         binType: 'general',
         status: 'available',
       },
+      {
+        binId: 'BIN004',
+        qrCode: 'QR004',
+        rfidTag: 'RFID004',
+        location: {
+          type: 'Point',
+          coordinates: [-89.6504, 39.7820],
+          address: 'Warehouse, Springfield, IL',
+        },
+        capacity: 100,
+        currentLevel: 0,
+        binType: 'recyclable',
+        status: 'available',
+      },
+      {
+        binId: 'BIN005',
+        qrCode: 'QR005',
+        rfidTag: 'RFID005',
+        location: {
+          type: 'Point',
+          coordinates: [-89.6505, 39.7821],
+          address: 'Warehouse, Springfield, IL',
+        },
+        capacity: 100,
+        currentLevel: 0,
+        binType: 'organic',
+        status: 'available',
+      },
+      {
+        binId: 'BIN006',
+        qrCode: 'QR006',
+        rfidTag: 'RFID006',
+        location: {
+          type: 'Point',
+          coordinates: [-89.6506, 39.7822],
+          address: 'Warehouse, Springfield, IL',
+        },
+        capacity: 100,
+        currentLevel: 0,
+        binType: 'hazardous',
+        status: 'available',
+      },
     ]);
 
     console.log('✅ Created smart bins');
@@ -151,7 +193,7 @@ const seedData = async () => {
       ticketNumber: 'TKT000001',
       title: 'Damaged bin needs replacement',
       description: 'My recycling bin has a crack on the side and cannot hold waste properly.',
-      category: 'damaged-bin',
+      category: 'bin',
       priority: 'high',
       status: 'open',
       reporter: users[0]._id,
@@ -163,7 +205,7 @@ const seedData = async () => {
       ticketNumber: 'TKT000002',
       title: 'Missed pickup last week',
       description: 'The waste collection was scheduled but the team did not show up.',
-      category: 'missed-pickup',
+      category: 'collection',
       priority: 'medium',
       status: 'in-progress',
       reporter: users[0]._id,
@@ -172,12 +214,38 @@ const seedData = async () => {
     await ticket2.save({ validateBeforeSave: false });
 
     console.log('✅ Created sample tickets');
+
+    // Create sample payments for residents
+    const payments = await Payment.create([
+      {
+        user: users[0]._id, // Resident
+        amount: 50,
+        currency: 'USD',
+        paymentType: 'installation-fee',
+        paymentMethod: 'credit-card',
+        status: 'completed',
+        paymentDetails: {
+          cardLastFour: '4242',
+          cardType: 'Visa',
+          paymentGateway: 'Stripe'
+        },
+        invoice: {
+          invoiceDate: new Date(),
+          paidDate: new Date()
+        },
+        description: 'Smart bin installation fee'
+      }
+    ]);
+
+    console.log('✅ Created sample payments');
+
     console.log('\n🎉 Seed data created successfully!');
     console.log('\n📝 Summary:');
     console.log(`   Users: ${users.length}`);
     console.log(`   Bins: ${bins.length}`);
     console.log(`   Routes: ${routes.length}`);
-    console.log(`   Tickets: 2`);
+    console.log(`   Tickets: ${tickets.length}`);
+    console.log(`   Payments: ${payments.length}`);
     console.log('\n🚀 You can now login with any of the test accounts!');
 
     process.exit(0);
@@ -187,4 +255,4 @@ const seedData = async () => {
   }
 };
 
-seedData();
+seedDatabase();

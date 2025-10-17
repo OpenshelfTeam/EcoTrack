@@ -9,7 +9,7 @@ export interface Ticket {
   category: 'damaged-bin' | 'missed-pickup' | 'payment-issue' | 'bin-not-delivered' | 'collection-complaint' | 'technical-issue' | 'other';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in-progress' | 'resolved' | 'closed';
-  createdBy: {
+  reporter: {
     _id: string;
     firstName: string;
     lastName: string;
@@ -28,7 +28,16 @@ export interface Ticket {
   };
   comments: Comment[];
   attachments: string[];
-  resolution?: string;
+  resolution?: {
+    resolvedBy?: {
+      _id: string;
+      firstName: string;
+      lastName: string;
+    };
+    resolvedAt?: Date;
+    resolution?: string;
+    actionTaken?: string;
+  };
   resolvedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -41,7 +50,7 @@ export interface Comment {
     firstName: string;
     lastName: string;
   };
-  comment: string;
+  message: string;
   createdAt: Date;
 }
 
@@ -71,8 +80,8 @@ export const ticketService = {
     return response.data;
   },
 
-  async assignTicket(id: string, assigneeId: string) {
-    const response = await api.patch(`/tickets/${id}/assign`, { assigneeId });
+  async assignTicket(id: string, userId: string) {
+    const response = await api.patch(`/tickets/${id}/assign`, { userId });
     return response.data;
   },
 
@@ -87,12 +96,12 @@ export const ticketService = {
   },
 
   async addComment(id: string, comment: string) {
-    const response = await api.post(`/tickets/${id}/comments`, { comment });
+    const response = await api.post(`/tickets/${id}/comments`, { message: comment });
     return response.data;
   },
 
   async resolveTicket(id: string, resolution: string) {
-    const response = await api.post(`/tickets/${id}/resolve`, { resolution });
+    const response = await api.patch(`/tickets/${id}/resolve`, { resolution });
     return response.data;
   },
 

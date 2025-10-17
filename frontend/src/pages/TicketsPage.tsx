@@ -3,11 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   AlertCircle, Plus, Search, Filter, MessageSquare, Clock,
-  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send
+  CheckCircle, XCircle, User, Calendar, ChevronRight, X, Send, UserPlus, Edit, Save
 } from 'lucide-react';
 import { ticketService, type Ticket } from '../services/ticket.service';
+import { userService } from '../services/user.service';
+import { useAuth } from '../contexts/AuthContext';
 
 export const TicketsPage = () => {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -18,6 +21,32 @@ export const TicketsPage = () => {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState('');
+  const [resolutionText, setResolutionText] = useState('');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedTicket, setEditedTicket] = useState<{
+    title: string;
+    description: string;
+    category: string;
+    priority: string;
+  }>({
+    title: '',
+    description: '',
+    category: '',
+    priority: ''
+  });
+
+  // Fetch team members (collectors, operators, authorities, admins) for assignment
+  const { data: usersData } = useQuery({
+    queryKey: ['team-members'],
+    queryFn: () => userService.getAllUsers(),
+    enabled: !!(user && (user.role === 'authority' || user.role === 'admin')),
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
+
+  const teamMembers = usersData?.data?.filter((u: any) => 
+    ['collector', 'operator', 'authority', 'admin'].includes(u.role)
+  ) || [];
 
   // Fetch tickets with React Query
   const { data: ticketsData, isLoading, error } = useQuery({
@@ -53,8 +82,13 @@ export const TicketsPage = () => {
   // Update ticket mutation
   const updateTicketMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => ticketService.updateTicket(id, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      setIsEditMode(false);
+      alert('Ticket updated successfully');
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update ticket');
@@ -76,12 +110,66 @@ export const TicketsPage = () => {
   const addCommentMutation = useMutation({
     mutationFn: ({ id, comment }: { id: string; comment: string }) => 
       ticketService.addComment(id, comment),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
       setCommentText('');
+      // Update the selected ticket with the new comment data
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to add comment');
+    }
+  });
+
+  // Assign ticket mutation
+  const assignTicketMutation = useMutation({
+    mutationFn: ({ id, userId }: { id: string; userId: string }) => 
+      ticketService.assignTicket(id, userId),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      setSelectedAssignee('');
+      alert('Ticket assigned successfully');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to assign ticket');
+    }
+  });
+
+  // Resolve ticket mutation
+  const resolveTicketMutation = useMutation({
+    mutationFn: ({ id, resolution }: { id: string; resolution: string }) => 
+      ticketService.resolveTicket(id, resolution),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      setResolutionText('');
+      alert('Ticket resolved successfully');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to resolve ticket');
+    }
+  });
+
+  // Update status mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => 
+      ticketService.updateStatus(id, status),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      if (selectedTicket && response.data) {
+        setSelectedTicket(response.data);
+      }
+      alert('Ticket status updated successfully');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to update status');
     }
   });
 
@@ -98,7 +186,7 @@ export const TicketsPage = () => {
       <Layout>
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto"></div>
+            <div className="w-12 h-12 mx-auto border-b-2 rounded-full animate-spin border-emerald-600"></div>
             <p className="mt-4 text-gray-600">Loading tickets...</p>
           </div>
         </div>
@@ -111,9 +199,9 @@ export const TicketsPage = () => {
       <Layout>
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <p className="text-gray-900 font-medium">Failed to load tickets</p>
-            <p className="text-gray-600 mt-2">Please try refreshing the page</p>
+            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+            <p className="font-medium text-gray-900">Failed to load tickets</p>
+            <p className="mt-2 text-gray-600">Please try refreshing the page</p>
           </div>
         </div>
       </Layout>
@@ -184,6 +272,64 @@ export const TicketsPage = () => {
     }
   };
 
+  const handleAssignTicket = () => {
+    if (selectedTicket && selectedAssignee) {
+      assignTicketMutation.mutate({
+        id: selectedTicket._id,
+        userId: selectedAssignee
+      });
+    }
+  };
+
+  const handleResolveTicket = () => {
+    if (selectedTicket && resolutionText.trim()) {
+      resolveTicketMutation.mutate({
+        id: selectedTicket._id,
+        resolution: resolutionText
+      });
+    }
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    if (selectedTicket) {
+      updateStatusMutation.mutate({
+        id: selectedTicket._id,
+        status: newStatus
+      });
+    }
+  };
+
+  const handleEditTicket = () => {
+    if (selectedTicket) {
+      setEditedTicket({
+        title: selectedTicket.title,
+        description: selectedTicket.description,
+        category: selectedTicket.category,
+        priority: selectedTicket.priority
+      });
+      setIsEditMode(true);
+    }
+  };
+
+  const handleSaveEdit = () => {
+    if (selectedTicket && editedTicket.title.trim() && editedTicket.description.trim()) {
+      updateTicketMutation.mutate({
+        id: selectedTicket._id,
+        data: editedTicket
+      });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setEditedTicket({
+      title: '',
+      description: '',
+      category: '',
+      priority: ''
+    });
+  };
+
   const resetNewTicket = () => {
     setNewTicket({
       title: '',
@@ -193,19 +339,34 @@ export const TicketsPage = () => {
     });
   };
 
+  const handleDeleteTicket = () => {
+    if (selectedTicket) {
+      if (window.confirm('Are you sure you want to delete this ticket? This action cannot be undone.')) {
+        deleteTicketMutation.mutate(selectedTicket._id, {
+          onSuccess: () => {
+            setShowDetailsModal(false);
+            setSelectedTicket(null);
+            setIsEditMode(false);
+            alert('Ticket deleted successfully');
+          }
+        });
+      }
+    }
+  };
+
   return (
     <Layout>
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="p-6 mx-auto space-y-6 max-w-7xl">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white">
+            <h1 className="flex items-center gap-3 text-3xl font-bold text-gray-900">
+              <div className="p-2 text-white bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl">
                 <AlertCircle className="w-7 h-7" />
               </div>
               Support Tickets
             </h1>
-            <p className="text-gray-600 mt-1">Report issues and track support requests</p>
+            <p className="mt-1 text-gray-600">Report issues and track support requests</p>
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
@@ -217,12 +378,12 @@ export const TicketsPage = () => {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <div className="p-5 transition-shadow bg-white border border-gray-200 rounded-xl hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Total</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
+                <p className="mt-1 text-2xl font-bold text-gray-900">{stats.total}</p>
               </div>
               <div className="p-3 bg-gray-100 rounded-lg">
                 <AlertCircle className="w-6 h-6 text-gray-600" />
@@ -230,11 +391,11 @@ export const TicketsPage = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-5 transition-shadow bg-white border border-gray-200 rounded-xl hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Open</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{stats.open}</p>
+                <p className="mt-1 text-2xl font-bold text-blue-600">{stats.open}</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
                 <AlertCircle className="w-6 h-6 text-blue-600" />
@@ -242,11 +403,11 @@ export const TicketsPage = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-5 transition-shadow bg-white border border-gray-200 rounded-xl hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">In Progress</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">{stats.inProgress}</p>
+                <p className="mt-1 text-2xl font-bold text-yellow-600">{stats.inProgress}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Clock className="w-6 h-6 text-yellow-600" />
@@ -254,23 +415,23 @@ export const TicketsPage = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-5 transition-shadow bg-white border border-gray-200 rounded-xl hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Resolved</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.resolved}</p>
+                <p className="mt-1 text-2xl font-bold text-emerald-600">{stats.resolved}</p>
               </div>
-              <div className="p-3 bg-emerald-100 rounded-lg">
+              <div className="p-3 rounded-lg bg-emerald-100">
                 <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl p-5 border border-gray-200 hover:shadow-lg transition-shadow">
+          <div className="p-5 transition-shadow bg-white border border-gray-200 rounded-xl hover:shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Urgent</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">{stats.urgent}</p>
+                <p className="mt-1 text-2xl font-bold text-red-600">{stats.urgent}</p>
               </div>
               <div className="p-3 bg-red-100 rounded-lg">
                 <AlertCircle className="w-6 h-6 text-red-600" />
@@ -280,10 +441,10 @@ export const TicketsPage = () => {
         </div>
 
         {/* Search and Filters */}
-        <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+        <div className="p-5 bg-white border border-gray-200 shadow-sm rounded-xl">
+          <div className="flex flex-col gap-4 lg:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute w-5 h-5 text-gray-400 transform -translate-y-1/2 left-3 top-1/2" />
               <input
                 type="text"
                 placeholder="Search tickets..."
@@ -304,9 +465,9 @@ export const TicketsPage = () => {
           </div>
 
           {showFilters && (
-            <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 pt-4 mt-4 border-t border-gray-200 md:grid-cols-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Status</label>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
@@ -320,7 +481,7 @@ export const TicketsPage = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Priority</label>
                 <select
                   value={filterPriority}
                   onChange={(e) => setFilterPriority(e.target.value)}
@@ -334,7 +495,7 @@ export const TicketsPage = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Category</label>
                 <select
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
@@ -357,14 +518,17 @@ export const TicketsPage = () => {
           {tickets.map((ticket: Ticket) => (
             <div
               key={ticket._id}
-              className="bg-white rounded-xl border border-gray-200 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer"
-              onClick={() => {
+              className="overflow-hidden transition-all duration-300 bg-white border border-gray-200 cursor-pointer rounded-xl hover:shadow-lg"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Ticket clicked:', ticket.ticketNumber, 'Status:', ticket.status);
                 setSelectedTicket(ticket);
                 setShowDetailsModal(true);
               }}
             >
               <div className="p-6">
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex-1 space-y-3">
                     <div className="flex items-start gap-3">
                       <div className={`p-2 rounded-lg ${ticket.priority === 'urgent' ? 'bg-red-100' : 'bg-emerald-100'}`}>
@@ -372,7 +536,7 @@ export const TicketsPage = () => {
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-mono text-gray-500">{ticket.ticketId}</span>
+                          <span className="font-mono text-xs text-gray-500">{ticket.ticketNumber}</span>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${getCategoryColor(ticket.category)}`}>
                             {ticket.category}
                           </span>
@@ -389,7 +553,7 @@ export const TicketsPage = () => {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-4 text-sm text-gray-600 pt-2 border-t border-gray-100">
+                    <div className="flex flex-wrap gap-4 pt-2 text-sm text-gray-600 border-t border-gray-100">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
                         <span>{new Date(ticket.createdAt).toLocaleDateString()}</span>
@@ -409,10 +573,10 @@ export const TicketsPage = () => {
                     </div>
                   </div>
 
-                  <button className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-600">
                     View Details
                     <ChevronRight className="w-4 h-4" />
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -420,9 +584,9 @@ export const TicketsPage = () => {
         </div>
 
         {tickets.length === 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No tickets found</h3>
+          <div className="p-12 text-center bg-white border border-gray-200 rounded-xl">
+            <AlertCircle className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <h3 className="mb-2 text-lg font-semibold text-gray-900">No tickets found</h3>
             <p className="text-gray-600">Try adjusting your search or filters</p>
           </div>
         )}
@@ -430,18 +594,18 @@ export const TicketsPage = () => {
 
       {/* Create Ticket Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+            <div className="sticky top-0 flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900">Create Support Ticket</h2>
-              <button onClick={() => { setShowCreateModal(false); resetNewTicket(); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <button onClick={() => { setShowCreateModal(false); resetNewTicket(); }} className="p-2 transition-colors rounded-lg hover:bg-gray-100">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Title *</label>
                 <input
                   type="text"
                   value={newTicket.title}
@@ -452,7 +616,7 @@ export const TicketsPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Description *</label>
                 <textarea
                   value={newTicket.description}
                   onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })}
@@ -462,9 +626,9 @@ export const TicketsPage = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Category *</label>
+                  <label className="block mb-2 text-sm font-medium text-gray-700">Category *</label>
                   <select
                     value={newTicket.category}
                     onChange={(e) => setNewTicket({ ...newTicket, category: e.target.value as any })}
@@ -481,7 +645,7 @@ export const TicketsPage = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority *</label>
+                  <label className="block mb-2 text-sm font-medium text-gray-700">Priority *</label>
                   <select
                     value={newTicket.priority}
                     onChange={(e) => setNewTicket({ ...newTicket, priority: e.target.value as any })}
@@ -496,7 +660,7 @@ export const TicketsPage = () => {
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
+            <div className="sticky bottom-0 flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
               <button
                 onClick={() => { setShowCreateModal(false); resetNewTicket(); }}
                 className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
@@ -517,16 +681,30 @@ export const TicketsPage = () => {
 
       {/* Ticket Details Modal */}
       {showDetailsModal && selectedTicket && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+            <div className="sticky top-0 flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold text-gray-900">Ticket Details</h2>
-                <span className="text-sm font-mono text-gray-500">{selectedTicket.ticketId}</span>
+                <span className="font-mono text-sm text-gray-500">{selectedTicket.ticketNumber}</span>
               </div>
-              <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Edit button for residents who own the ticket */}
+                {user?.role === 'resident' && 
+                 selectedTicket.reporter._id === user._id && 
+                 !isEditMode && (
+                  <button 
+                    onClick={handleEditTicket}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 transition-colors rounded-lg hover:bg-blue-50"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Edit
+                  </button>
+                )}
+                <button onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); setIsEditMode(false); }} className="p-2 transition-colors rounded-lg hover:bg-gray-100">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 space-y-6">
@@ -554,44 +732,173 @@ export const TicketsPage = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Created</label>
-                  <p className="text-sm font-medium text-gray-900 mt-1">
+                  <p className="mt-1 text-sm font-medium text-gray-900">
                     {new Date(selectedTicket.createdAt).toLocaleString()}
                   </p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500 uppercase">Last Updated</label>
+                  <p className="mt-1 text-sm font-medium text-gray-900">
+                    {new Date(selectedTicket.updatedAt).toLocaleString()}
+                  </p>
+                  {selectedTicket.updatedAt !== selectedTicket.createdAt && (
+                    <span className="text-xs text-emerald-600">• Modified</span>
+                  )}
                 </div>
                 {selectedTicket.assignedTo && (
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase">Assigned To</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
+                    <p className="mt-1 text-sm font-medium text-gray-900">
                       {selectedTicket.assignedTo.firstName} {selectedTicket.assignedTo.lastName}
                     </p>
                   </div>
                 )}
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Created By</label>
-                  <p className="text-sm font-medium text-gray-900 mt-1">
-                    {selectedTicket.createdBy.firstName} {selectedTicket.createdBy.lastName}
+                  <p className="mt-1 text-sm font-medium text-gray-900">
+                    {selectedTicket.reporter.firstName} {selectedTicket.reporter.lastName}
                   </p>
                 </div>
                 {selectedTicket.resolvedAt && (
                   <div>
                     <label className="text-xs font-semibold text-gray-500 uppercase">Resolved</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
+                    <p className="mt-1 text-sm font-medium text-gray-900">
                       {new Date(selectedTicket.resolvedAt).toLocaleString()}
                     </p>
                   </div>
                 )}
               </div>
 
+              {/* Change Status Section - Only for Authority/Admin/Operator */}
+              {(user?.role === 'authority' || user?.role === 'admin' || user?.role === 'operator') && (
+                <div className="pt-6 border-t border-gray-200">
+                  <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
+                    <Clock className="w-5 h-5 text-purple-600" />
+                    Change Ticket Status
+                  </h4>
+                  <div className="flex gap-3">
+                    <select
+                      value={selectedTicket.status}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      disabled={updateStatusMutation.isPending}
+                      className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Current status: <span className="font-medium capitalize">{selectedTicket.status.replace('-', ' ')}</span>
+                  </p>
+                </div>
+              )}
+
+              {/* Assignment Section - Only for Authority/Admin */}
+              {(user?.role === 'authority' || user?.role === 'admin') && 
+               selectedTicket.status !== 'resolved' && 
+               selectedTicket.status !== 'closed' && (
+                <div className="pt-6 border-t border-gray-200">
+                  <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
+                    <UserPlus className="w-5 h-5 text-blue-600" />
+                    Assign Ticket to Team Member
+                  </h4>
+                  <div className="flex gap-3">
+                    <select
+                      value={selectedAssignee}
+                      onChange={(e) => setSelectedAssignee(e.target.value)}
+                      className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    >
+                      <option value="">Select team member...</option>
+                      {teamMembers.map((member: any) => (
+                        <option key={member._id} value={member._id}>
+                          {member.firstName} {member.lastName} ({member.role.charAt(0).toUpperCase() + member.role.slice(1)})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAssignTicket}
+                      disabled={!selectedAssignee || assignTicketMutation.isPending}
+                      className="px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+                    >
+                      <UserPlus className="w-5 h-5" />
+                      {assignTicketMutation.isPending ? 'Assigning...' : 'Assign'}
+                    </button>
+                  </div>
+                  {selectedTicket.assignedTo && (
+                    <p className="mt-2 text-sm text-gray-600">
+                      Currently assigned to: <span className="font-medium">{selectedTicket.assignedTo.firstName} {selectedTicket.assignedTo.lastName}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Resolve Ticket Section - Only for assigned user or authority */}
+              {(user?.role === 'authority' || user?.role === 'admin' || selectedTicket.assignedTo?._id === user?._id) && 
+               selectedTicket.status !== 'resolved' && 
+               selectedTicket.status !== 'closed' && (
+                <div className="pt-6 border-t border-gray-200">
+                  <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
+                    <CheckCircle className="w-5 h-5 text-emerald-600" />
+                    Resolve Ticket
+                  </h4>
+                  <div className="space-y-3">
+                    <textarea
+                      value={resolutionText}
+                      onChange={(e) => setResolutionText(e.target.value)}
+                      rows={4}
+                      placeholder="Describe the resolution and actions taken to fix this issue..."
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={handleResolveTicket}
+                      disabled={!resolutionText.trim() || resolveTicketMutation.isPending}
+                      className="px-6 py-2.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+                    >
+                      <CheckCircle className="w-5 h-5" />
+                      {resolveTicketMutation.isPending ? 'Resolving...' : 'Mark as Resolved'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Resolution Details - Show if resolved */}
+              {selectedTicket.resolution && selectedTicket.resolution.resolution && (
+                <div className="pt-6 border-t border-gray-200">
+                  <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
+                    <CheckCircle className="w-5 h-5 text-emerald-600" />
+                    Resolution
+                  </h4>
+                  <div className="p-4 border rounded-lg bg-emerald-50 border-emerald-200">
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedTicket.resolution.resolution}</p>
+                    {selectedTicket.resolution.actionTaken && (
+                      <p className="mt-2 text-sm text-gray-700">
+                        <span className="font-medium">Action Taken:</span> {selectedTicket.resolution.actionTaken}
+                      </p>
+                    )}
+                    {selectedTicket.resolution.resolvedAt && (
+                      <p className="pt-3 mt-3 text-xs text-gray-600 border-t border-emerald-200">
+                        Resolved on {new Date(selectedTicket.resolution.resolvedAt).toLocaleString()}
+                        {selectedTicket.resolution.resolvedBy && (
+                          <span> by {selectedTicket.resolution.resolvedBy.firstName} {selectedTicket.resolution.resolvedBy.lastName}</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Comments Section */}
-              <div className="border-t border-gray-200 pt-6">
-                <h4 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <div className="pt-6 border-t border-gray-200">
+                <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900">
                   <MessageSquare className="w-5 h-5" />
                   Comments ({selectedTicket.comments?.length || 0})
                 </h4>
                 
-                <div className="space-y-4 mb-4">
+                <div className="mb-4 space-y-4">
                   {selectedTicket.comments?.map((comment) => (
-                    <div key={comment._id} className="bg-gray-50 rounded-lg p-4">
+                    <div key={comment._id} className="p-4 rounded-lg bg-gray-50">
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium text-gray-900">
                           {comment.user.firstName} {comment.user.lastName}
@@ -600,7 +907,7 @@ export const TicketsPage = () => {
                           {new Date(comment.createdAt).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-700">{comment.comment}</p>
+                      <p className="text-sm text-gray-700">{comment.message}</p>
                     </div>
                   ))}
                 </div>
@@ -618,7 +925,7 @@ export const TicketsPage = () => {
                   <button
                     onClick={handleAddComment}
                     disabled={!commentText.trim()}
-                    className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 text-white transition-colors rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Send className="w-5 h-5" />
                   </button>
@@ -626,9 +933,18 @@ export const TicketsPage = () => {
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
+            <div className="sticky bottom-0 flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+              {user?.role === 'resident' && selectedTicket.reporter._id === user._id && !isEditMode && (
+                <button
+                  onClick={handleDeleteTicket}
+                  disabled={deleteTicketMutation.isPending}
+                  className="flex-1 px-6 py-2.5 border border-red-500 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deleteTicketMutation.isPending ? 'Deleting...' : 'Delete Ticket'}
+                </button>
+              )}
               <button
-                onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); }}
+                onClick={() => { setShowDetailsModal(false); setSelectedTicket(null); setIsEditMode(false); }}
                 className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
               >
                 Close
