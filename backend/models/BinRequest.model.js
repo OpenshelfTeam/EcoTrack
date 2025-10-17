@@ -19,6 +19,19 @@ const binRequestSchema = new mongoose.Schema({
   preferredDeliveryDate: {
     type: Date
   },
+  // Delivery address fields
+  address: {
+    type: String,
+    required: true
+  },
+  street: String,
+  city: String,
+  province: String,
+  postalCode: String,
+  coordinates: {
+    lat: Number,
+    lng: Number
+  },
   status: {
     type: String,
     enum: ['pending', 'approved', 'rejected', 'cancelled'],

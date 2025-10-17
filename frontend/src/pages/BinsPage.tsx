@@ -340,22 +340,24 @@ export const BinsPage = () => {
               <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white">
                 <Trash2 className="w-7 h-7" />
               </div>
-              {user?.role === 'resident' ? 'My Waste Bins' : 'Waste Bins Management'}
+              {user?.role === 'resident' ? 'My Assigned Bins' : 'Waste Bins Management'}
             </h1>
             <p className="text-gray-600 mt-1">
               {user?.role === 'resident' 
-                ? 'Register and manage your household waste bins'
-                : 'Monitor and manage all waste collection bins'
+                ? 'View your assigned waste bins. Need a new bin? Go to Bin Requests page.'
+                : 'Monitor and manage all waste collection bins in the system'
               }
             </p>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-          >
-            <Plus className="w-5 h-5" />
-            Add New Bin
-          </button>
+          {(user?.role === 'admin' || user?.role === 'operator' || user?.role === 'authority') && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              <Plus className="w-5 h-5" />
+              Add New Bin
+            </button>
+          )}
         </div>
 
         {/* Loading State */}

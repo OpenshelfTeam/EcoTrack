@@ -11,14 +11,33 @@ export const createBinRequest = async (req, res) => {
     const resident = await User.findById(req.user._id);
     if (!resident) return res.status(404).json({ success: false, message: 'Resident not found' });
 
-    const { requestedBinType, preferredDeliveryDate, notes } = req.body;
+    const { requestedBinType, preferredDeliveryDate, notes, address, street, city, province, postalCode, coordinates } = req.body;
 
     const br = await BinRequest.create({
       resident: resident._id,
       requestedBinType,
       preferredDeliveryDate,
-      notes
+      notes,
+      address,
+      street,
+      city,
+      province,
+      postalCode,
+      coordinates
     });
+
+    // Create notification for operators
+    const operators = await User.find({ role: { $in: ['operator', 'admin'] } });
+    
+    for (const operator of operators) {
+      await Notification.create({
+        recipient: operator._id,
+        type: 'bin-request',
+        title: 'New Bin Request',
+        message: `${resident.firstName} ${resident.lastName} has requested a ${requestedBinType} bin at ${address}`,
+        priority: 'medium'
+      });
+    }
 
     res.status(201).json({ success: true, data: br });
   } catch (error) {
@@ -94,6 +113,18 @@ export const approveAndAssignRequest = async (req, res) => {
     bin.assignedTo = request.resident._id;
     bin.status = 'assigned';
     bin.deliveryDate = deliveryDate || request.preferredDeliveryDate || new Date();
+    
+    // Update bin location to the request's delivery address
+    if (request.coordinates) {
+      bin.location = {
+        type: 'Point',
+        coordinates: [request.coordinates.lng, request.coordinates.lat],
+        address: request.address
+      };
+    } else if (request.address) {
+      bin.location.address = request.address;
+    }
+    
     await bin.save();
 
     // Update request
@@ -147,10 +178,138 @@ export const getRequests = async (req, res) => {
       .populate('resident', 'firstName lastName email phone address')
       .populate('assignedBin')
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .sort('-createdAt');
 
     res.status(200).json({ success: true, count: requests.length, data: requests });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Cancel bin request (resident only for pending requests)
+export const cancelBinRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const request = await BinRequest.findById(requestId).populate('resident');
+
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Bin request not found' });
+    }
+
+    // Check if user owns this request
+    if (req.user.role === 'resident' && request.resident._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized to cancel this request' });
+    }
+
+    // Only pending requests can be cancelled
+    if (request.status !== 'pending') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot cancel request with status: ${request.status}` 
+      });
+    }
+
+    request.status = 'cancelled';
+    await request.save();
+
+    // Notify operators about cancellation
+    const operators = await User.find({ role: { $in: ['operator', 'admin'] } });
+    
+    for (const operator of operators) {
+      await Notification.create({
+        recipient: operator._id,
+        type: 'general',
+        title: 'Bin Request Cancelled',
+        message: `${request.resident.firstName} ${request.resident.lastName} cancelled their ${request.requestedBinType} bin request.`,
+        priority: 'low'
+      });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Bin request cancelled successfully',
+      data: request 
+    });
+  } catch (error) {
+    console.error('Error cancelling bin request:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Confirm bin receipt (resident only for approved requests)
+export const confirmBinReceipt = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const request = await BinRequest.findById(requestId)
+      .populate('resident')
+      .populate('assignedBin');
+
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Bin request not found' });
+    }
+
+    // Check if user owns this request
+    if (req.user.role === 'resident' && request.resident._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized to confirm this request' });
+    }
+
+    // Only approved requests with assigned bins can be confirmed
+    if (request.status !== 'approved') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Only approved requests can be confirmed' 
+      });
+    }
+
+    if (!request.assignedBin) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No bin assigned to this request yet' 
+      });
+    }
+
+    // Find the delivery record
+    const delivery = await Delivery.findOne({ 
+      bin: request.assignedBin._id,
+      resident: request.resident._id 
+    });
+
+    if (delivery) {
+      // Update delivery status to delivered
+      delivery.status = 'delivered';
+      delivery.confirmedAt = new Date();
+      await delivery.save();
+
+      // Activate the bin
+      const bin = await SmartBin.findById(request.assignedBin._id);
+      if (bin) {
+        bin.status = 'active';
+        bin.activationDate = new Date();
+        await bin.save();
+      }
+    }
+
+    // Notify operators about confirmation
+    const operators = await User.find({ role: { $in: ['operator', 'admin'] } });
+    
+    for (const operator of operators) {
+      await Notification.create({
+        recipient: operator._id,
+        type: 'bin-activated',
+        title: 'Bin Receipt Confirmed',
+        message: `${request.resident.firstName} ${request.resident.lastName} confirmed receipt of ${request.requestedBinType} bin (${request.assignedBin.binId}).`,
+        priority: 'low'
+      });
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Bin receipt confirmed successfully. Your bin is now active!',
+      data: { request, delivery } 
+    });
+  } catch (error) {
+    console.error('Error confirming bin receipt:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

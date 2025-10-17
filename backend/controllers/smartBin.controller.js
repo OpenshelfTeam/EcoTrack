@@ -25,9 +25,9 @@ export const getSmartBins = async (req, res) => {
     // Build filter query
     const filter = {};
 
-    // Role-based filtering: Residents only see their own bins
+    // Role-based filtering: Residents only see bins assigned to them
     if (req.user.role === 'resident') {
-      filter.createdBy = req.user.id;
+      filter.assignedTo = req.user.id;
     }
     // Collectors, Operators, Admins, and Authorities see all bins
     // (no additional filter needed)
@@ -139,7 +139,7 @@ export const getSmartBin = async (req, res) => {
 
 // @desc    Create smart bin
 // @route   POST /api/smart-bins
-// @access  Private (Resident, Collector, Operator, Admin)
+// @access  Private (Operator, Admin, Authority only)
 export const createSmartBin = async (req, res) => {
   try {
     // Automatically set createdBy to the current user
