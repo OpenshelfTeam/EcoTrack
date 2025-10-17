@@ -18,6 +18,33 @@ export const createPickupRequest = async (req, res) => {
       notes
     } = req.body;
 
+    // Check if there's already a scheduled pickup for this date
+    const requestedDate = new Date(preferredDate);
+    const startOfDay = new Date(requestedDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(requestedDate.setHours(23, 59, 59, 999));
+
+    const existingPickup = await PickupRequest.findOne({
+      requestedBy: req.user._id,
+      preferredDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      },
+      status: { $in: ['pending', 'approved', 'in-progress'] }
+    });
+
+    if (existingPickup) {
+      return res.status(400).json({
+        success: false,
+        message: 'Collection is already scheduled for this date.',
+        existingPickup: {
+          id: existingPickup._id,
+          date: existingPickup.preferredDate,
+          status: existingPickup.status,
+          timeSlot: existingPickup.timeSlot
+        }
+      });
+    }
+
     const pickupRequest = await PickupRequest.create({
       requestedBy: req.user._id,
       wasteType,
@@ -40,6 +67,7 @@ export const createPickupRequest = async (req, res) => {
 
     res.status(201).json({
       success: true,
+      message: 'Pickup request submitted successfully.',
       data: pickupRequest
     });
   } catch (error) {

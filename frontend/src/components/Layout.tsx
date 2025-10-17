@@ -49,6 +49,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         { name: 'Pickups', icon: Truck, path: '/pickups' },
         { name: 'Tickets', icon: Ticket, path: '/tickets' },
         { name: 'Payments', icon: CreditCard, path: '/payments' },
+        { name: 'Subscription', icon: CreditCard, path: '/subscription' },
         { name: 'Feedback', icon: MessageSquare, path: '/feedback' },
       ];
     }

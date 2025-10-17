@@ -9,6 +9,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { BinsPage } from './pages/BinsPage';
 import { TicketsPage } from './pages/TicketsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
+import { SubscriptionPage } from './pages/SubscriptionPage';
 import { RoutesPage } from './pages/RoutesPage';
 import { CollectionsPage } from './pages/CollectionsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -83,6 +84,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <PaymentsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/subscription"
+              element={
+                <ProtectedRoute allowedRoles={['resident']}>
+                  <SubscriptionPage />
                 </ProtectedRoute>
               }
             />
