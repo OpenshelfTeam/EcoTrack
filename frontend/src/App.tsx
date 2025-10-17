@@ -16,6 +16,8 @@ import { FeedbackPage } from './pages/FeedbackPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PickupsPage } from './pages/PickupsPage';
 import { UsersPage } from './pages/UsersPage';
+import { BinRequestsPage } from './pages/BinRequestsPage';
+import { DeliveriesPage } from './pages/DeliveriesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -128,6 +130,22 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['operator', 'admin']}>
                   <UsersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/bin-requests"
+              element={
+                <ProtectedRoute>
+                  <BinRequestsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/deliveries"
+              element={
+                <ProtectedRoute>
+                  <DeliveriesPage />
                 </ProtectedRoute>
               }
             />
