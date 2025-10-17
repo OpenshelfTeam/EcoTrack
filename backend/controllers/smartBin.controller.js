@@ -1,5 +1,7 @@
 import SmartBin from '../models/SmartBin.model.js';
 import User from '../models/User.model.js';
+import Payment from '../models/Payment.model.js';
+import Delivery from '../models/Delivery.model.js';
 
 // @desc    Get all smart bins with advanced filtering
 // @route   GET /api/smart-bins
@@ -227,16 +229,31 @@ export const assignBin = async (req, res) => {
       });
     }
 
+    // Verify payment: look for a completed payment for installation-fee or service-charge linked to this user
+    const payment = await Payment.findOne({ user: userId, status: 'completed', $or: [{ paymentType: 'installation-fee' }, { paymentType: 'service-charge' }] });
+
+    if (!payment) {
+      return res.status(400).json({ success: false, message: 'Resident payment not verified. Please ensure payment account is active.' });
+    }
+
+    // Assign bin and set status to assigned
     bin.assignedTo = userId;
     bin.status = 'assigned';
     bin.deliveryDate = deliveryDate || new Date();
     await bin.save();
 
+    // Create delivery record
+    const delivery = await Delivery.create({
+      bin: bin._id,
+      resident: userId,
+      scheduledDate: bin.deliveryDate
+    });
+
     await bin.populate('assignedTo', 'firstName lastName email phone address');
 
     res.status(200).json({
       success: true,
-      data: bin
+      data: { bin, delivery }
     });
   } catch (error) {
     res.status(500).json({
