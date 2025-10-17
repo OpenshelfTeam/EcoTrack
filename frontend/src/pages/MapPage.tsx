@@ -72,21 +72,15 @@ const createBinIcon = (fillLevel: number, status: string) => {
   });
 };
 
-// Component to auto-fit map bounds
+// Component to auto-fit map bounds (disabled to keep full Sri Lanka view)
 const MapBoundsSetter = ({ bins }: { bins: SmartBin[] }) => {
   const map = useMap();
   
   useEffect(() => {
-    if (bins && bins.length > 0) {
-      const bounds = bins
-        .filter(bin => bin.location?.coordinates && bin.location.coordinates.length === 2)
-        .map(bin => [bin.location.coordinates[1], bin.location.coordinates[0]] as [number, number]);
-      
-      if (bounds.length > 0) {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
-      }
-    }
-  }, [bins, map]);
+    // Keep the default full Sri Lanka view - don't auto-zoom to bins
+    // This ensures the map always shows the complete island
+    map.setView([7.8731, 80.7718], 7.5);
+  }, [map]);
   
   return null;
 };
@@ -351,12 +345,15 @@ export const MapPage = () => {
           <div className="relative" style={{ height: '600px' }}>
             {filteredBins.length > 0 ? (
               <MapContainer
-                center={
-                  filteredBins[0]?.location?.coordinates 
-                    ? [filteredBins[0].location.coordinates[1], filteredBins[0].location.coordinates[0]]
-                    : [6.9271, 79.8612] // Default: Colombo, Sri Lanka
-                }
-                zoom={13}
+                center={[7.8731, 80.7718]} // Center of Sri Lanka
+                zoom={7.5}
+                minZoom={7}
+                maxZoom={18}
+                maxBounds={[
+                  [5.5, 79.0],  // Southwest - extended to show only ocean
+                  [10.2, 82.5]  // Northeast - extended to show only ocean
+                ]}
+                maxBoundsViscosity={1.0}
                 style={{ height: '100%', width: '100%' }}
                 className="z-0"
               >
