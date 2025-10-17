@@ -1,5 +1,6 @@
 import PickupRequest from '../models/PickupRequest.model.js';
 import User from '../models/User.model.js';
+import Notification from '../models/Notification.model.js';
 
 // @desc    Create new pickup request
 // @route   POST /api/pickups
@@ -65,9 +66,39 @@ export const createPickupRequest = async (req, res) => {
 
     await pickupRequest.populate('requestedBy', 'firstName lastName email phone');
 
+    // Notify all operators and admins about the new pickup request
+    const operators = await User.find({ 
+      role: { $in: ['operator', 'admin'] },
+      isActive: true 
+    });
+
+    const residentName = `${pickupRequest.requestedBy.firstName} ${pickupRequest.requestedBy.lastName}`;
+    const wasteTypeDisplay = wasteType.charAt(0).toUpperCase() + wasteType.slice(1);
+    const preferredDateDisplay = new Date(preferredDate).toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+
+    for (const operator of operators) {
+      await Notification.create({
+        recipient: operator._id,
+        type: 'pickup-scheduled',
+        title: 'New Pickup Request',
+        message: `${residentName} has requested a pickup for ${wasteTypeDisplay} waste on ${preferredDateDisplay} (${timeSlot}).`,
+        priority: 'medium',
+        channel: ['in-app', 'email'],
+        relatedEntity: {
+          entityType: 'collection',
+          entityId: pickupRequest._id
+        }
+      });
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Pickup request submitted successfully.',
+      message: 'Pickup request submitted successfully. Operators have been notified.',
       data: pickupRequest
     });
   } catch (error) {
@@ -100,13 +131,16 @@ export const getPickupRequests = async (req, res) => {
 
     // Role-based filtering
     if (req.user.role === 'resident') {
+      // Residents can only see their own pickup requests
       filter.requestedBy = req.user._id;
     } else if (req.user.role === 'collector') {
+      // Collectors can see their assigned pickups and approved requests
       filter.$or = [
         { assignedCollector: req.user._id },
-        { status: 'approved' } // Collectors can see approved requests
+        { status: 'approved' }
       ];
     }
+    // Operators, Admins, and Authority can see ALL pickup requests (no filter)
 
     if (status) {
       filter.status = status;
@@ -347,8 +381,44 @@ export const assignCollector = async (req, res) => {
     await pickupRequest.save();
     await pickupRequest.populate('requestedBy assignedCollector');
 
+    // Notify the assigned collector
+    const scheduledDateDisplay = new Date(scheduledDate).toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    
+    await Notification.create({
+      recipient: collectorId,
+      type: 'pickup-scheduled',
+      title: 'New Pickup Assignment',
+      message: `You have been assigned to collect ${pickupRequest.wasteType} waste from ${pickupRequest.requestedBy.firstName} ${pickupRequest.requestedBy.lastName} on ${scheduledDateDisplay}.`,
+      priority: 'high',
+      channel: ['in-app', 'email', 'sms'],
+      relatedEntity: {
+        entityType: 'collection',
+        entityId: pickupRequest._id
+      }
+    });
+
+    // Notify the resident about the assignment
+    await Notification.create({
+      recipient: pickupRequest.requestedBy._id,
+      type: 'pickup-scheduled',
+      title: 'Pickup Scheduled',
+      message: `Your pickup request has been scheduled. ${collector.firstName} ${collector.lastName} will collect your ${pickupRequest.wasteType} waste on ${scheduledDateDisplay}.`,
+      priority: 'medium',
+      channel: ['in-app', 'email'],
+      relatedEntity: {
+        entityType: 'collection',
+        entityId: pickupRequest._id
+      }
+    });
+
     res.status(200).json({
       success: true,
+      message: 'Collector assigned successfully. Notifications sent to collector and resident.',
       data: pickupRequest
     });
   } catch (error) {

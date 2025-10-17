@@ -37,6 +37,7 @@ function LocationMarker({ position, setPosition }: { position: { lat: number; ln
 
 interface Bin {
   id: string;
+  binId: string;
   location: string;
   address: string;
   capacity: number;
@@ -116,6 +117,7 @@ export const BinsPage = () => {
 
   const bins: Bin[] = binsData?.data?.map((bin: any) => ({
     id: bin._id,
+    binId: bin.binId,
     location: bin.location?.address || 'Unknown Location',
     address: bin.location?.address || '',
     capacity: bin.capacity,
@@ -292,19 +294,29 @@ export const BinsPage = () => {
 
   const handleEditBin = () => {
     if (selectedBin) {
+      // Residents can only update specific fields
+      const updateData = user?.role === 'resident' 
+        ? {
+            currentLevel: selectedBin.currentLevel,
+            status: selectedBin.status,
+            lastEmptied: selectedBin.lastCollection ? new Date(selectedBin.lastCollection) : null,
+          }
+        : {
+            location: {
+              type: 'Point',
+              coordinates: [79.8612, 6.9271],
+              address: selectedBin.address,
+            },
+            capacity: selectedBin.capacity,
+            binType: selectedBin.type,
+            currentLevel: selectedBin.currentLevel,
+            status: selectedBin.status,
+            lastEmptied: selectedBin.lastCollection ? new Date(selectedBin.lastCollection) : null,
+          };
+
       updateBinMutation.mutate({
         id: selectedBin.id,
-        data: {
-          location: {
-            type: 'Point',
-            coordinates: [79.8612, 6.9271],
-            address: selectedBin.address,
-          },
-          capacity: selectedBin.capacity,
-          binType: selectedBin.type,
-          currentLevel: selectedBin.currentLevel,
-          status: selectedBin.status,
-        },
+        data: updateData,
       });
     }
   };
@@ -545,15 +557,20 @@ export const BinsPage = () => {
               >
                 {/* Card Header */}
                 <div className="bg-gradient-to-r from-emerald-50 to-teal-50 p-4 border-b border-gray-200">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 text-lg">{bin.location}</h3>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <h3 className="font-semibold text-gray-900 text-lg">{bin.location}</h3>
+                        <span className="px-2.5 py-1 bg-white text-emerald-700 text-xs font-mono font-bold rounded-md border border-emerald-300 shadow-sm whitespace-nowrap">
+                          {bin.binId}
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
-                        <MapPin className="w-4 h-4" />
-                        {bin.address}
+                        <MapPin className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{bin.address}</span>
                       </p>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(bin.type)}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 ${getTypeColor(bin.type)}`}>
                       {bin.type}
                     </span>
                   </div>
@@ -638,6 +655,7 @@ export const BinsPage = () => {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Bin ID</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Location</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Type</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
@@ -650,12 +668,17 @@ export const BinsPage = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredBins.map((bin) => (
                     <tr key={bin.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="font-medium text-gray-900">{bin.location}</div>
-                          <div className="text-sm text-gray-500 flex items-center gap-1">
-                            <MapPin className="w-3 h-3" />
-                            {bin.address}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-1 bg-white text-emerald-700 text-xs font-mono font-bold rounded-md border border-emerald-300 shadow-sm">
+                          {bin.binId}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 truncate">{bin.location}</div>
+                          <div className="text-sm text-gray-500 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{bin.address}</span>
                           </div>
                         </div>
                       </td>
@@ -952,8 +975,13 @@ export const BinsPage = () => {
                     <Edit className="w-8 h-8 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-white">Edit Bin</h2>
-                    <p className="text-blue-50 text-sm mt-1">Update bin information</p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-2xl font-bold text-white">Edit Bin</h2>
+                      <span className="inline-flex items-center px-3 py-1.5 bg-white/90 backdrop-blur-sm text-emerald-700 text-sm font-mono font-bold rounded-lg border-2 border-white shadow-lg">
+                        {selectedBin.binId}
+                      </span>
+                    </div>
+                    <p className="text-blue-50 text-sm mt-1.5">{selectedBin.location}</p>
                   </div>
                 </div>
                 <button
@@ -961,7 +989,7 @@ export const BinsPage = () => {
                     setShowEditModal(false);
                     setSelectedBin(null);
                   }}
-                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                  className="p-2 hover:bg-white/20 rounded-xl transition-colors"
                 >
                   <X className="w-6 h-6 text-white" />
                 </button>
@@ -969,102 +997,154 @@ export const BinsPage = () => {
             </div>
 
             <div className="p-8 space-y-6 max-h-[calc(90vh-200px)] overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Location Name *</label>
-                  <input
-                    type="text"
-                    value={selectedBin.location}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, location: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  />
-                </div>
+              {/* Show different fields based on user role */}
+              {user?.role === 'resident' ? (
+                // Residents can only edit limited fields
+                <>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <p className="text-sm text-blue-800">
+                      <strong>Note:</strong> You can update the current level, status, and last collection date for your bin.
+                    </p>
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Type *</label>
-                  <select
-                    value={selectedBin.type}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, type: e.target.value as Bin['type'] })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  >
-                    <option value="general">General Waste</option>
-                    <option value="recyclable">Recyclable</option>
-                    <option value="organic">Organic</option>
-                    <option value="hazardous">Hazardous</option>
-                  </select>
-                </div>
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Current Level (%)</label>
+                      <input
+                        type="number"
+                        value={selectedBin.currentLevel}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, currentLevel: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                        min="0"
+                        max="100"
+                      />
+                    </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Address *</label>
-                <input
-                  type="text"
-                  value={selectedBin.address}
-                  onChange={(e) => setSelectedBin({ ...selectedBin, address: e.target.value })}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                />
-              </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Status *</label>
+                      <select
+                        value={selectedBin.status}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, status: e.target.value as Bin['status'] })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      >
+                        <option value="active">Active</option>
+                        <option value="full">Full</option>
+                        <option value="maintenance">Maintenance</option>
+                      </select>
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Capacity (L) *</label>
-                  <input
-                    type="number"
-                    value={selectedBin.capacity}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, capacity: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    min="0"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Last Collection</label>
+                    <input
+                      type="date"
+                      value={selectedBin.lastCollection}
+                      onChange={(e) => setSelectedBin({ ...selectedBin, lastCollection: e.target.value })}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    />
+                  </div>
+                </>
+              ) : (
+                // Operators/Admins can edit all fields
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Location Name *</label>
+                      <input
+                        type="text"
+                        value={selectedBin.location}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, location: e.target.value })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Current Level (%)</label>
-                  <input
-                    type="number"
-                    value={selectedBin.currentLevel}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, currentLevel: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    min="0"
-                    max="100"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Type *</label>
+                      <select
+                        value={selectedBin.type}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, type: e.target.value as Bin['type'] })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      >
+                        <option value="general">General Waste</option>
+                        <option value="recyclable">Recyclable</option>
+                        <option value="organic">Organic</option>
+                        <option value="hazardous">Hazardous</option>
+                      </select>
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Status *</label>
-                  <select
-                    value={selectedBin.status}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, status: e.target.value as Bin['status'] })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  >
-                    <option value="active">Active</option>
-                    <option value="full">Full</option>
-                    <option value="maintenance">Maintenance</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Address *</label>
+                    <input
+                      type="text"
+                      value={selectedBin.address}
+                      onChange={(e) => setSelectedBin({ ...selectedBin, address: e.target.value })}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    />
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Last Collection</label>
-                  <input
-                    type="date"
-                    value={selectedBin.lastCollection}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, lastCollection: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  />
-                </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Capacity (L) *</label>
+                      <input
+                        type="number"
+                        value={selectedBin.capacity}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, capacity: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                        min="0"
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Next Collection</label>
-                  <input
-                    type="date"
-                    value={selectedBin.nextCollection}
-                    onChange={(e) => setSelectedBin({ ...selectedBin, nextCollection: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                  />
-                </div>
-              </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Current Level (%)</label>
+                      <input
+                        type="number"
+                        value={selectedBin.currentLevel}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, currentLevel: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                        min="0"
+                        max="100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Status *</label>
+                      <select
+                        value={selectedBin.status}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, status: e.target.value as Bin['status'] })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      >
+                        <option value="active">Active</option>
+                        <option value="full">Full</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Last Collection</label>
+                      <input
+                        type="date"
+                        value={selectedBin.lastCollection}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, lastCollection: e.target.value })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">Next Collection</label>
+                      <input
+                        type="date"
+                        value={selectedBin.nextCollection}
+                        onChange={(e) => setSelectedBin({ ...selectedBin, nextCollection: e.target.value })}
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="sticky bottom-0 bg-gray-50 px-8 py-5 rounded-b-3xl border-t border-gray-200">

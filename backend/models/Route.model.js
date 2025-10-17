@@ -65,6 +65,36 @@ const routeSchema = new mongoose.Schema({
     type: Number, // in minutes
     default: 0
   },
+  // Start and end locations for pickup routes
+  startLocation: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      index: '2dsphere'
+    },
+    address: String
+  },
+  endLocation: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      index: '2dsphere'
+    },
+    address: String
+  },
+  // Reference to pickup request if this is a pickup route
+  pickupId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PickupRequest'
+  },
   notes: String
 }, {
   timestamps: true

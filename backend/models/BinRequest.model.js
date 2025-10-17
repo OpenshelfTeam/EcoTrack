@@ -22,7 +22,7 @@ const binRequestSchema = new mongoose.Schema({
   // Delivery address fields
   address: {
     type: String,
-    required: true
+    required: false
   },
   street: String,
   city: String,
@@ -34,12 +34,17 @@ const binRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected', 'cancelled'],
+    enum: ['pending', 'approved', 'rejected', 'cancelled', 'delivered'],
     default: 'pending'
   },
   assignedBin: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SmartBin',
+    default: null
+  },
+  deliveryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Delivery',
     default: null
   },
   paymentVerified: {

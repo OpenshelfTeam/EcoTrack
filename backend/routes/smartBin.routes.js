@@ -32,7 +32,7 @@ router.route('/')
 
 router.route('/:id')
   .get(getSmartBin)
-  .put(authorize('operator', 'admin', 'authority'), updateSmartBin)
+  .put(authorize('resident', 'operator', 'admin', 'authority'), updateSmartBin)
   .delete(authorize('operator', 'admin'), deleteSmartBin);
 
 // Action routes

@@ -3,9 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Calendar, Plus, Search, Filter, MapPin, Clock, Trash2,
-  CheckCircle, AlertCircle, XCircle, Package, X, ChevronRight, Navigation, Map, Loader2
+  CheckCircle, AlertCircle, XCircle, Package, X, ChevronRight, Navigation, Map, Loader2, UserCheck
 } from 'lucide-react';
 import { pickupService } from '../services/pickup.service';
+import { userService } from '../services/user.service';
+import { useAuth } from '../contexts/AuthContext';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -54,14 +56,18 @@ export const PickupsPage = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedPickup, setSelectedPickup] = useState<PickupRequest | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [tempMapLocation, setTempMapLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupCoordinates, setPickupCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [selectedCollectorId, setSelectedCollectorId] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
 
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // Fetch pickup requests with filters
   const { data: pickupsData, isLoading, error } = useQuery({
@@ -116,6 +122,31 @@ export const PickupsPage = () => {
       alert(`Error cancelling pickup: ${error.response?.data?.message || error.message}`);
     },
   });
+
+  // Fetch collectors for assignment
+  const { data: collectorsData } = useQuery({
+    queryKey: ['collectors'],
+    queryFn: () => userService.getAllUsers({ role: 'collector' }),
+    enabled: user?.role === 'operator' || user?.role === 'admin',
+  });
+
+  // Assign collector mutation
+  const assignCollectorMutation = useMutation({
+    mutationFn: ({ id, collectorId, scheduledDate }: { id: string; collectorId: string; scheduledDate: string }) =>
+      pickupService.assignCollector(id, collectorId, scheduledDate),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pickups'] });
+      setShowAssignModal(false);
+      setSelectedCollectorId('');
+      setScheduledDate('');
+      alert('Collector assigned successfully!');
+    },
+    onError: (error: any) => {
+      alert(`Error assigning collector: ${error.response?.data?.message || error.message}`);
+    },
+  });
+
+  const collectors = collectorsData?.data || [];
 
   const pickupRequests: PickupRequest[] = pickupsData?.data?.map((pickup: any) => ({
     id: pickup._id,
@@ -217,6 +248,24 @@ export const PickupsPage = () => {
     if (confirm('Are you sure you want to cancel this pickup request?')) {
       cancelPickupMutation.mutate({ id, reason: 'Cancelled by user' });
     }
+  };
+
+  const handleAssignCollector = () => {
+    if (!selectedCollectorId) {
+      alert('Please select a collector');
+      return;
+    }
+    if (!scheduledDate) {
+      alert('Please select a scheduled date');
+      return;
+    }
+    if (!selectedPickup) return;
+
+    assignCollectorMutation.mutate({
+      id: selectedPickup.id,
+      collectorId: selectedCollectorId,
+      scheduledDate: scheduledDate,
+    });
   };
 
   const getCurrentLocation = () => {
@@ -553,6 +602,22 @@ export const PickupsPage = () => {
                       View Details
                       <ChevronRight className="w-4 h-4" />
                     </button>
+                    
+                    {/* Assign Collector Button - Only for Operators/Admins on Pending Pickups */}
+                    {(user?.role === 'operator' || user?.role === 'admin') && pickup.status === 'pending' && (
+                      <button
+                        onClick={() => {
+                          setSelectedPickup(pickup);
+                          setScheduledDate(pickup.preferredDate); // Pre-fill with preferred date
+                          setShowAssignModal(true);
+                        }}
+                        className="flex-1 lg:flex-none px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        Assign Collector
+                      </button>
+                    )}
+                    
                     {(pickup.status === 'pending' || pickup.status === 'scheduled') && (
                       <button
                         onClick={() => handleCancelPickup(pickup.id)}
@@ -968,6 +1033,128 @@ export const PickupsPage = () => {
                   Cancel Pickup
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Collector Modal */}
+      {showAssignModal && selectedPickup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full transform transition-all animate-fadeIn">
+            <div className="bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-6 rounded-t-3xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <UserCheck className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Assign Collector</h2>
+                    <p className="text-blue-100 mt-1">Assign a collector to this pickup request</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAssignModal(false);
+                    setSelectedCollectorId('');
+                    setScheduledDate('');
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-8 space-y-6">
+              {/* Pickup Info */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+                    {selectedPickup.wasteType}
+                  </span>
+                  <span className="text-sm text-gray-600">Requested on {selectedPickup.requestDate}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <MapPin className="w-4 h-4" />
+                  <span className="text-sm">{selectedPickup.address}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-sm">Preferred: {selectedPickup.preferredDate} - {selectedPickup.preferredTime}</span>
+                </div>
+              </div>
+
+              {/* Collector Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Collector *
+                </label>
+                <select
+                  value={selectedCollectorId}
+                  onChange={(e) => setSelectedCollectorId(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  required
+                >
+                  <option value="">Choose a collector...</option>
+                  {collectors.map((collector: any) => (
+                    <option key={collector._id} value={collector._id}>
+                      {collector.firstName} {collector.lastName} - {collector.email}
+                    </option>
+                  ))}
+                </select>
+                {collectors.length === 0 && (
+                  <p className="mt-2 text-sm text-red-600">No collectors available. Please add collectors first.</p>
+                )}
+              </div>
+
+              {/* Scheduled Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Scheduled Date *
+                </label>
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => setScheduledDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  required
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  Preferred date: {selectedPickup.preferredDate}
+                </p>
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 px-8 py-4 flex gap-3 border-t border-gray-200 rounded-b-3xl">
+              <button
+                onClick={() => {
+                  setShowAssignModal(false);
+                  setSelectedCollectorId('');
+                  setScheduledDate('');
+                }}
+                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAssignCollector}
+                disabled={!selectedCollectorId || !scheduledDate || assignCollectorMutation.isPending}
+                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {assignCollectorMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="w-5 h-5" />
+                    Assign Collector
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
