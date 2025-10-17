@@ -13,6 +13,7 @@ const notificationSchema = new mongoose.Schema(
         "pickup-scheduled",
         "pickup-reminder",
         "pickup-completed",
+        "bin-request",
         "bin-delivered",
         "bin-activated",
         "payment-due",

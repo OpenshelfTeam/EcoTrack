@@ -28,16 +28,10 @@ export const BinRequestsPage = () => {
   const approveMutation = useMutation({
     mutationFn: ({ requestId, data }: { requestId: string; data: any }) =>
       binRequestService.approveRequest(requestId, data),
-    onSuccess: (response) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['binRequests'] });
       setShowApproveModal(false);
       setSelectedRequest(null);
-      alert(response.message || 'Bin request approved successfully!');
-    },
-    onError: (error: any) => {
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to approve request';
-      console.error('Approve error:', error.response?.data);
-      alert(`Error: ${errorMessage}`);
     }
   });
 
