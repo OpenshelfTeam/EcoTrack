@@ -31,28 +31,42 @@ export const approveAndAssignRequest = async (req, res) => {
   try {
     const { requestId } = req.params; // BinRequest ID
     const { binId, deliveryDate } = req.body; // SmartBin _id or binId
+    
+    console.log('Approve request received:', {
+      requestId,
+      binId,
+      deliveryDate,
+      body: req.body
+    });
 
     const request = await BinRequest.findById(requestId).populate('resident');
     if (!request) {
       return res.status(404).json({ success: false, message: 'Bin request not found' });
     }
+    
+    console.log('Request found:', {
+      id: request._id,
+      status: request.status,
+      resident: request.resident._id
+    });
 
     if (request.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Request already ${request.status}` });
     }
 
-    // Check payment verification (look for completed payment)
+    // Check payment verification (look for completed payment) - Optional check
     const payment = await Payment.findOne({
       user: request.resident._id,
       status: 'completed',
       paymentType: { $in: ['installation-fee', 'service-charge'] }
     });
 
+    // Mark payment verification status
+    const paymentVerified = !!payment;
+    
+    // Log for debugging
     if (!payment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment verification failed. Resident must have a completed payment before bin assignment.'
-      });
+      console.log(`Warning: No payment found for user ${request.resident._id}. Proceeding without payment verification.`);
     }
 
     // Find an available bin matching type if binId not provided
@@ -85,7 +99,7 @@ export const approveAndAssignRequest = async (req, res) => {
     // Update request
     request.status = 'approved';
     request.assignedBin = bin._id;
-    request.paymentVerified = true;
+    request.paymentVerified = paymentVerified;
     await request.save();
 
     // Create delivery record
@@ -97,12 +111,11 @@ export const approveAndAssignRequest = async (req, res) => {
 
     // Create notification for resident
     await Notification.create({
-      user: request.resident._id,
-      type: 'bin-assigned',
+      recipient: request.resident._id,
+      type: 'bin-delivered',
       title: 'Bin Request Approved',
       message: `Your ${request.requestedBinType} bin request has been approved. Delivery scheduled for ${new Date(bin.deliveryDate).toLocaleDateString()}. Tracking: ${delivery.trackingNumber}`,
-      relatedModel: 'BinRequest',
-      relatedId: request._id
+      priority: 'high'
     });
 
     await bin.populate('assignedTo', 'firstName lastName email phone address');
@@ -110,7 +123,16 @@ export const approveAndAssignRequest = async (req, res) => {
     res.status(200).json({ success: true, data: { request, bin, delivery } });
   } catch (error) {
     console.error('Error approving bin request:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 

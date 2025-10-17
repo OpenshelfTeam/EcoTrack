@@ -76,13 +76,23 @@ export const PickupsPage = () => {
   // Create pickup mutation
   const createPickupMutation = useMutation({
     mutationFn: pickupService.createPickup,
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['pickups'] });
       setShowRequestModal(false);
       resetNewRequest();
+      // Show success message
+      alert(response?.message || 'Pickup request submitted successfully.');
     },
     onError: (error: any) => {
-      alert(`Error creating pickup: ${error.response?.data?.message || error.message}`);
+      const errorMessage = error.response?.data?.message || error.message;
+      
+      // Check if it's a schedule conflict error
+      if (errorMessage.includes('already scheduled')) {
+        alert(`⚠️ ${errorMessage}\n\nPlease choose a different date or cancel the existing pickup first.`);
+      } else {
+        alert(`Error creating pickup: ${errorMessage}`);
+      }
+      
       console.error('Pickup creation error:', error.response?.data);
     },
   });

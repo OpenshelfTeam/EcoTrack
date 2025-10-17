@@ -157,11 +157,11 @@ export const PaymentsPage = () => {
   }
 
   // Calculate statistics from API data or use default values
-  const stats = statsData?.data || {
-    totalPaid: payments.filter((p: Payment) => p.status === 'paid').reduce((sum: number, p: Payment) => sum + p.amount, 0),
-    pending: payments.filter((p: Payment) => p.status === 'pending').reduce((sum: number, p: Payment) => sum + p.amount, 0),
-    failed: payments.filter((p: Payment) => p.status === 'failed').reduce((sum: number, p: Payment) => sum + p.amount, 0),
-    total: payments.reduce((sum: number, p: Payment) => sum + p.amount, 0)
+  const stats = {
+    totalPaid: Number(statsData?.data?.totalPaid) || (payments || []).filter((p: Payment) => p.status === 'paid').reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0),
+    pending: Number(statsData?.data?.pending) || (payments || []).filter((p: Payment) => p.status === 'pending').reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0),
+    failed: Number(statsData?.data?.failed) || (payments || []).filter((p: Payment) => p.status === 'failed').reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0),
+    total: Number(statsData?.data?.total) || (payments || []).reduce((sum: number, p: Payment) => sum + (Number(p.amount) || 0), 0)
   };
 
   const getStatusColor = (status: string) => {
@@ -350,7 +350,7 @@ export const PaymentsPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-emerald-100 text-sm">Total Paid</p>
-                <p className="text-3xl font-bold mt-1">${stats.totalPaid.toFixed(2)}</p>
+                <p className="text-3xl font-bold mt-1">${Number(stats.totalPaid || 0).toFixed(2)}</p>
               </div>
               <div className="p-3 bg-white bg-opacity-20 rounded-lg">
                 <CheckCircle className="w-6 h-6" />
@@ -362,7 +362,7 @@ export const PaymentsPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm">Pending</p>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">${stats.pending.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-yellow-600 mt-1">${Number(stats.pending || 0).toFixed(2)}</p>
               </div>
               <div className="p-3 bg-yellow-100 rounded-lg">
                 <Clock className="w-6 h-6 text-yellow-600" />
@@ -374,7 +374,7 @@ export const PaymentsPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm">Failed</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">${stats.failed?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-red-600 mt-1">${Number(stats.failed || 0).toFixed(2)}</p>
               </div>
               <div className="p-3 bg-red-100 rounded-lg">
                 <XCircle className="w-6 h-6 text-red-600" />
@@ -386,7 +386,7 @@ export const PaymentsPage = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-gray-600 text-sm">Total</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">${stats.total?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">${Number(stats.total || 0).toFixed(2)}</p>
               </div>
               <div className="p-3 bg-gray-100 rounded-lg">
                 <TrendingUp className="w-6 h-6 text-gray-600" />
