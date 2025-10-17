@@ -29,12 +29,14 @@ export const createBinRequest = async (req, res) => {
     // Create notification for operators
     const operators = await User.find({ role: { $in: ['operator', 'admin'] } });
     
+    const addressText = address ? ` at ${address}` : '';
+    
     for (const operator of operators) {
       await Notification.create({
         recipient: operator._id,
         type: 'bin-request',
         title: 'New Bin Request',
-        message: `${resident.firstName} ${resident.lastName} has requested a ${requestedBinType} bin at ${address}`,
+        message: `${resident.firstName} ${resident.lastName} has requested a ${requestedBinType} bin${addressText}`,
         priority: 'medium'
       });
     }
@@ -63,11 +65,15 @@ export const approveAndAssignRequest = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Bin request not found' });
     }
     
-    console.log('Request found:', {
-      id: request._id,
-      status: request.status,
-      resident: request.resident._id
-    });
+    const hasValidCoordinates = request.coordinates && 
+                              request.coordinates.lat != null && 
+                              request.coordinates.lng != null &&
+                              !isNaN(request.coordinates.lat) && 
+                              !isNaN(request.coordinates.lng) &&
+                              request.coordinates.lat >= -90 && request.coordinates.lat <= 90 &&
+                              request.coordinates.lng >= -180 && request.coordinates.lng <= 180;
+
+    console.log('Has valid coordinates:', hasValidCoordinates);
 
     if (request.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Request already ${request.status}` });
@@ -88,70 +94,34 @@ export const approveAndAssignRequest = async (req, res) => {
       console.log(`Warning: No payment found for user ${request.resident._id}. Proceeding without payment verification.`);
     }
 
-    // Find an available bin matching type if binId not provided
-    let bin;
-    if (binId) {
-      bin = await SmartBin.findById(binId);
-      if (!bin) {
-        return res.status(404).json({ success: false, message: 'Specified bin not found' });
-      }
-      if (bin.status !== 'available') {
-        return res.status(400).json({ success: false, message: 'Specified bin is not available' });
-      }
-    } else {
-      bin = await SmartBin.findOne({ binType: request.requestedBinType, status: 'available' });
-    }
-
-    if (!bin) {
-      return res.status(400).json({
-        success: false,
-        message: `No available bins of type '${request.requestedBinType}' found in inventory. Please add bins or try a different type.`
-      });
-    }
-
-    // Link bin and mark assigned
-    bin.assignedTo = request.resident._id;
-    bin.status = 'assigned';
-    bin.deliveryDate = deliveryDate || request.preferredDeliveryDate || new Date();
-    
-    // Update bin location to the request's delivery address
-    if (request.coordinates) {
-      bin.location = {
-        type: 'Point',
-        coordinates: [request.coordinates.lng, request.coordinates.lat],
-        address: request.address
-      };
-    } else if (request.address) {
-      bin.location.address = request.address;
-    }
-    
-    await bin.save();
-
-    // Update request
+    // Update request status to approved (bin will be created when delivery is completed)
     request.status = 'approved';
-    request.assignedBin = bin._id;
     request.paymentVerified = paymentVerified;
     await request.save();
 
-    // Create delivery record
+    // Create delivery record (bin will be created when delivery is marked as delivered)
     const delivery = await Delivery.create({
-      bin: bin._id,
+      bin: null, // Will be set when bin is created on delivery completion
       resident: request.resident._id,
-      scheduledDate: bin.deliveryDate
+      scheduledDate: deliveryDate ? new Date(deliveryDate) : 
+                   request.preferredDeliveryDate ? new Date(request.preferredDeliveryDate) : 
+                   new Date()
     });
+
+    // Store delivery info in request for later use
+    request.deliveryId = delivery._id;
+    await request.save();
 
     // Create notification for resident
     await Notification.create({
       recipient: request.resident._id,
       type: 'bin-delivered',
       title: 'Bin Request Approved',
-      message: `Your ${request.requestedBinType} bin request has been approved. Delivery scheduled for ${new Date(bin.deliveryDate).toLocaleDateString()}. Tracking: ${delivery.trackingNumber}`,
+      message: `Your ${request.requestedBinType} bin request has been approved. Delivery scheduled for ${new Date(delivery.scheduledDate).toLocaleDateString()}. Tracking: ${delivery.trackingNumber}`,
       priority: 'high'
     });
 
-    await bin.populate('assignedTo', 'firstName lastName email phone address');
-
-    res.status(200).json({ success: true, data: { request, bin, delivery } });
+    res.status(200).json({ success: true, data: { request, delivery } });
   } catch (error) {
     console.error('Error approving bin request:', error);
     console.error('Error details:', {
@@ -237,7 +207,8 @@ export const cancelBinRequest = async (req, res) => {
   }
 };
 
-// Confirm bin receipt (resident only for approved requests)
+// Confirm bin receipt - This is now handled automatically when delivery status is updated to 'delivered'
+// This endpoint is kept for backwards compatibility but is optional
 export const confirmBinReceipt = async (req, res) => {
   try {
     const { requestId } = req.params;
@@ -254,62 +225,28 @@ export const confirmBinReceipt = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to confirm this request' });
     }
 
-    // Only approved requests with assigned bins can be confirmed
-    if (request.status !== 'approved') {
+    // Check if bin has already been delivered
+    if (request.status === 'delivered' && request.assignedBin) {
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Your bin has already been delivered and is active!',
+        data: { request } 
+      });
+    }
+
+    // If status is still approved, delivery hasn't been completed yet
+    if (request.status === 'approved') {
       return res.status(400).json({ 
         success: false, 
-        message: 'Only approved requests can be confirmed' 
+        message: 'Your bin is still being delivered. Please wait for the collector to mark it as delivered.' 
       });
     }
 
-    if (!request.assignedBin) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No bin assigned to this request yet' 
-      });
-    }
-
-    // Find the delivery record
-    const delivery = await Delivery.findOne({ 
-      bin: request.assignedBin._id,
-      resident: request.resident._id 
-    });
-
-    if (delivery) {
-      // Update delivery status to delivered
-      delivery.status = 'delivered';
-      delivery.confirmedAt = new Date();
-      await delivery.save();
-
-      // Activate the bin
-      const bin = await SmartBin.findById(request.assignedBin._id);
-      if (bin) {
-        bin.status = 'active';
-        bin.activationDate = new Date();
-        await bin.save();
-      }
-    }
-
-    // Notify operators about confirmation
-    const operators = await User.find({ role: { $in: ['operator', 'admin'] } });
-    
-    for (const operator of operators) {
-      await Notification.create({
-        recipient: operator._id,
-        type: 'bin-activated',
-        title: 'Bin Receipt Confirmed',
-        message: `${request.resident.firstName} ${request.resident.lastName} confirmed receipt of ${request.requestedBinType} bin (${request.assignedBin.binId}).`,
-        priority: 'low'
-      });
-    }
-
-    res.status(200).json({ 
-      success: true, 
-      message: 'Bin receipt confirmed successfully. Your bin is now active!',
-      data: { request, delivery } 
+    res.status(400).json({ 
+      success: false, 
+      message: 'Invalid request status' 
     });
   } catch (error) {
-    console.error('Error confirming bin receipt:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

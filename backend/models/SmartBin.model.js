@@ -100,8 +100,18 @@ smartBinSchema.index({ location: '2dsphere' });
 // Generate unique bin ID before saving
 smartBinSchema.pre('save', async function(next) {
   if (!this.binId) {
-    const count = await mongoose.model('SmartBin').countDocuments();
-    this.binId = `BIN${String(count + 1).padStart(5, '0')}`;
+    let binId;
+    let attempts = 0;
+    do {
+      binId = `BIN${Date.now()}${String(attempts).padStart(3, '0')}`;
+      attempts++;
+    } while (await mongoose.model('SmartBin').findOne({ binId }) && attempts < 100);
+    
+    if (attempts >= 100) {
+      return next(new Error('Unable to generate unique bin ID'));
+    }
+    
+    this.binId = binId;
   }
   next();
 });

@@ -43,9 +43,23 @@ const deliverySchema = new mongoose.Schema({
 
 deliverySchema.pre('save', async function(next) {
   if (this.isNew && !this.deliveryId) {
-    const count = await mongoose.model('Delivery').countDocuments();
-    this.deliveryId = `DLV${Date.now()}${String(count + 1).padStart(4, '0')}`;
-    this.trackingNumber = `TRK${Date.now()}${String(count + 1).padStart(6, '0')}`;
+    let deliveryId;
+    let trackingNumber;
+    let attempts = 0;
+    do {
+      const timestamp = Date.now();
+      const count = attempts;
+      deliveryId = `DLV${timestamp}${String(count + 1).padStart(4, '0')}`;
+      trackingNumber = `TRK${timestamp}${String(count + 1).padStart(6, '0')}`;
+      attempts++;
+    } while ((await mongoose.model('Delivery').findOne({ $or: [{ deliveryId }, { trackingNumber }] })) && attempts < 100);
+    
+    if (attempts >= 100) {
+      return next(new Error('Unable to generate unique delivery ID'));
+    }
+    
+    this.deliveryId = deliveryId;
+    this.trackingNumber = trackingNumber;
   }
   next();
 });

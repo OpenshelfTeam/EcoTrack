@@ -58,7 +58,7 @@ function App() {
             <Route
               path="/pickups"
               element={
-                <ProtectedRoute allowedRoles={['resident']}>
+                <ProtectedRoute allowedRoles={['resident','collector', 'authority', 'operator', 'admin']}>
                   <PickupsPage />
                 </ProtectedRoute>
               }

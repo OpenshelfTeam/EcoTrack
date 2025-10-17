@@ -141,7 +141,7 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Demo Credentials Card */}
-        <div className="mt-6 bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-6 text-white shadow-xl">
+        {/* <div className="mt-6 bg-white/20 backdrop-blur-md border border-white/30 rounded-2xl p-6 text-white shadow-xl">
           <p className="font-bold mb-3 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-yellow-300" />
             Quick Login Credentials
@@ -159,7 +159,7 @@ export const LoginPage: React.FC = () => {
               Password: <span className="font-mono bg-white/20 px-2 py-1 rounded">password123</span>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );

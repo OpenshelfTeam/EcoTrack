@@ -80,8 +80,8 @@ export const pickupService = {
     return response.data;
   },
 
-  async assignCollector(id: string, collectorId: string) {
-    const response = await api.patch(`/pickups/${id}/assign`, { collectorId });
+  async assignCollector(id: string, collectorId: string, scheduledDate?: string) {
+    const response = await api.patch(`/pickups/${id}/assign`, { collectorId, scheduledDate });
     return response.data;
   },
 

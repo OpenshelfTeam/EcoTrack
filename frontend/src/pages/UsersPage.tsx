@@ -17,6 +17,19 @@ export const UsersPage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    role: 'resident' as 'admin' | 'collector' | 'resident' | 'operator' | 'authority',
+    address: {
+      street: '',
+      city: '',
+      state: '',
+      zipCode: ''
+    }
+  });
 
   const queryClient = useQueryClient();
 
@@ -31,14 +44,6 @@ export const UsersPage = () => {
   });
 
   // Mutations
-  const updateRoleMutation = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: string }) => userService.updateUserRole(id, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      alert('Role updated successfully!');
-    }
-  });
-
   const activateMutation = useMutation({
     mutationFn: userService.activateUser,
     onSuccess: () => {
@@ -100,20 +105,6 @@ export const UsersPage = () => {
 
   const users = usersData?.data || [];
 
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    role: 'resident' as 'admin' | 'collector' | 'resident' | 'operator' | 'authority',
-    address: {
-      street: '',
-      city: '',
-      state: '',
-      zipCode: ''
-    }
-  });
-
   // Filter users (already handled by API, but keep for UI consistency)
   const filteredUsers = users.filter((user: any) => {
     const fullName = `${user.firstName} ${user.lastName}`;
@@ -161,28 +152,14 @@ export const UsersPage = () => {
       : 'bg-red-100 text-red-700 border-red-200';
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
-    });
-  };
-
-  const formatLastActive = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return formatDate(dateString);
-  };
+  // Utility functions (kept for future use)
+  // const formatDate = (dateString: string) => {
+  //   return new Date(dateString).toLocaleDateString('en-US', { 
+  //     month: 'short', 
+  //     day: 'numeric', 
+  //     year: 'numeric' 
+  //   });
+  // };
 
   const openAddModal = () => {
     setModalMode('add');
@@ -245,10 +222,6 @@ export const UsersPage = () => {
     } else {
       activateMutation.mutate(user._id);
     }
-  };
-
-  const handleRoleChange = (userId: string, newRole: string) => {
-    updateRoleMutation.mutate({ id: userId, role: newRole });
   };
 
   return (

@@ -15,12 +15,6 @@ export interface Ticket {
     lastName: string;
     email: string;
   };
-  reporter?: {
-    _id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-  };
   assignedTo?: {
     _id: string;
     firstName: string;
