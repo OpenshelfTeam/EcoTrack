@@ -3,9 +3,36 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import {
   Calendar, Plus, Search, Filter, MapPin, Clock, Trash2,
-  CheckCircle, AlertCircle, XCircle, Package, X, ChevronRight
+  CheckCircle, AlertCircle, XCircle, Package, X, ChevronRight, Navigation, Map, Loader2
 } from 'lucide-react';
 import { pickupService } from '../services/pickup.service';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+// Component to handle map clicks
+function LocationMarker({ position, setPosition }: { position: { lat: number; lng: number } | null; setPosition: (pos: { lat: number; lng: number }) => void }) {
+  useMapEvents({
+    click(e) {
+      setPosition({
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+      });
+    },
+  });
+
+  return position === null ? null : (
+    <Marker position={[position.lat, position.lng]} />
+  );
+}
 
 interface PickupRequest {
   id: string;
@@ -29,6 +56,10 @@ export const PickupsPage = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedPickup, setSelectedPickup] = useState<PickupRequest | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [tempMapLocation, setTempMapLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickupCoordinates, setPickupCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [gettingLocation, setGettingLocation] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -178,6 +209,79 @@ export const PickupsPage = () => {
     }
   };
 
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setPickupCoordinates({ lat: latitude, lng: longitude });
+
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+          );
+          const data = await response.json();
+          
+          if (data.display_name) {
+            setNewRequest({ ...newRequest, address: data.display_name });
+          }
+        } catch (error) {
+          console.error('Error getting address:', error);
+          setNewRequest({ 
+            ...newRequest, 
+            address: `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
+          });
+        }
+
+        setGettingLocation(false);
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        alert('Unable to get your location. Please ensure location permissions are enabled.');
+        setGettingLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  };
+
+  const handleMapLocationSelect = async () => {
+    if (tempMapLocation) {
+      setPickupCoordinates(tempMapLocation);
+
+      // Reverse geocode to get address
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${tempMapLocation.lat}&lon=${tempMapLocation.lng}`
+        );
+        const data = await response.json();
+        
+        if (data.display_name) {
+          setNewRequest({ ...newRequest, address: data.display_name });
+        }
+      } catch (error) {
+        console.error('Error getting address:', error);
+        setNewRequest({ 
+          ...newRequest, 
+          address: `Location: ${tempMapLocation.lat.toFixed(6)}, ${tempMapLocation.lng.toFixed(6)}` 
+        });
+      }
+
+      setShowMapPicker(false);
+      setTempMapLocation(null);
+    }
+  };
+
   const resetNewRequest = () => {
     setNewRequest({
       address: '123 Main St, Apt 4B',
@@ -188,6 +292,9 @@ export const PickupsPage = () => {
       requestDate: new Date().toISOString().split('T')[0],
       notes: ''
     });
+    setPickupCoordinates(null);
+    setTempMapLocation(null);
+    setGettingLocation(false);
   };
 
   return (
@@ -471,71 +578,114 @@ export const PickupsPage = () => {
 
       {/* Request Pickup Modal */}
       {showRequestModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Request Pickup</h2>
-              <button
-                onClick={() => {
-                  setShowRequestModal(false);
-                  resetNewRequest();
-                }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full my-8 transform transition-all animate-fadeIn">
+            <div className="sticky top-0 bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6 rounded-t-3xl z-10">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Package className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Request Pickup</h2>
+                    <p className="text-emerald-50 text-sm mt-1">Schedule a waste collection pickup</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRequestModal(false);
+                    resetNewRequest();
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-8 space-y-6 max-h-[calc(90vh-200px)] overflow-y-auto">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Address *</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <label className="block text-sm font-bold text-gray-700 mb-2">Pickup Address *</label>
+                <div className="flex gap-3 mb-2">
                   <input
                     type="text"
                     value={newRequest.address}
                     onChange={(e) => setNewRequest({ ...newRequest, address: e.target.value })}
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="Enter your address"
+                    className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                    placeholder="Full address including district"
                   />
+                  <button
+                    type="button"
+                    onClick={getCurrentLocation}
+                    disabled={gettingLocation}
+                    className="px-5 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold"
+                    title="Use my current location"
+                  >
+                    {gettingLocation ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        GPS
+                      </>
+                    ) : (
+                      <>
+                        <Navigation className="w-5 h-5" />
+                        GPS
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker(true)}
+                    className="px-5 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl hover:from-purple-600 hover:to-pink-700 transition-all flex items-center gap-2 whitespace-nowrap shadow-md hover:shadow-lg font-semibold"
+                    title="Select location on map"
+                  >
+                    <Map className="w-5 h-5" />
+                    Map
+                  </button>
                 </div>
+                {pickupCoordinates && (
+                  <p className="text-sm text-emerald-600 flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-lg">
+                    <CheckCircle className="w-4 h-4" />
+                    Location captured: {pickupCoordinates.lat.toFixed(6)}, {pickupCoordinates.lng.toFixed(6)}
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Waste Type *</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Waste Type *</label>
                 <select
                   value={newRequest.wasteType}
                   onChange={(e) => setNewRequest({ ...newRequest, wasteType: e.target.value as PickupRequest['wasteType'] })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                 >
+                  <option value="recyclable">Recyclable</option>
                   <option value="bulk">Bulk Items</option>
                   <option value="hazardous">Hazardous Waste</option>
                   <option value="electronic">Electronic Waste</option>
                   <option value="construction">Construction Waste</option>
                   <option value="organic">Organic Waste</option>
-                  <option value="recyclable">Recyclable</option>
                   <option value="other">Other</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Date *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Preferred Date *</label>
                   <input
                     type="date"
                     value={newRequest.preferredDate}
                     onChange={(e) => setNewRequest({ ...newRequest, preferredDate: e.target.value })}
                     min={new Date().toISOString().split('T')[0]}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Time *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Preferred Time *</label>
                   <select
                     value={newRequest.preferredTime}
                     onChange={(e) => setNewRequest({ ...newRequest, preferredTime: e.target.value as PickupRequest['preferredTime'] })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   >
                     <option value="morning">Morning (8 AM - 12 PM)</option>
                     <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
@@ -545,12 +695,12 @@ export const PickupsPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Additional Notes</label>
                 <textarea
                   value={newRequest.notes}
                   onChange={(e) => setNewRequest({ ...newRequest, notes: e.target.value })}
                   rows={4}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   placeholder="Any special instructions or details..."
                 />
               </div>
@@ -571,23 +721,109 @@ export const PickupsPage = () => {
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
-              <button
-                onClick={() => {
-                  setShowRequestModal(false);
-                  resetNewRequest();
-                }}
-                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+            <div className="sticky bottom-0 bg-gray-50 px-8 py-5 rounded-b-3xl border-t border-gray-200">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowRequestModal(false);
+                    resetNewRequest();
+                  }}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRequestPickup}
+                  disabled={!newRequest.address || !newRequest.preferredDate}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Submit Request
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map Location Picker Modal */}
+      {showMapPicker && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full h-[80vh] flex flex-col transform transition-all animate-fadeIn">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-500 to-pink-600 px-8 py-6 rounded-t-3xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Map className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Select Pickup Location</h2>
+                    <p className="text-purple-50 text-sm mt-1">Click anywhere on the map to set pickup location</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowMapPicker(false);
+                    setTempMapLocation(null);
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
+            </div>
+
+            {/* Map Container */}
+            <div className="flex-1 relative">
+              <MapContainer
+                center={[7.8731, 80.7718]} // Center of Sri Lanka
+                zoom={7.5}
+                minZoom={7}
+                maxZoom={18}
+                maxBounds={[
+                  [5.5, 79.0],  // Southwest - extended to show only ocean
+                  [10.2, 82.5]  // Northeast - extended to show only ocean
+                ]}
+                maxBoundsViscosity={1.0}
+                style={{ height: '100%', width: '100%' }}
+                className="rounded-b-3xl"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleRequestPickup}
-                disabled={!newRequest.address || !newRequest.preferredDate}
-                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Submit Request
-              </button>
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker position={tempMapLocation} setPosition={setTempMapLocation} />
+              </MapContainer>
+
+              {/* Floating info card */}
+              {tempMapLocation && (
+                <div className="absolute top-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-5 z-[1000]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-gray-700 mb-1">Selected Location</p>
+                      <p className="text-lg font-bold text-purple-600">
+                        {tempMapLocation.lat.toFixed(6)}, {tempMapLocation.lng.toFixed(6)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleMapLocationSelect}
+                      className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl hover:from-purple-600 hover:to-pink-700 transition-all shadow-md hover:shadow-lg font-semibold"
+                    >
+                      Confirm Location
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Instructions overlay */}
+              {!tempMapLocation && (
+                <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl px-6 py-4 z-[1000]">
+                  <p className="text-gray-700 font-medium flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-purple-500" />
+                    Click on the map to select pickup location
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

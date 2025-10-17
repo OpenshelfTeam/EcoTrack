@@ -13,29 +13,36 @@ export const getDashboardStats = async (req, res) => {
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
+    // Build filters based on user role
+    const binFilter = req.user.role === 'resident' ? { createdBy: req.user.id } : {};
+    const pickupFilter = req.user.role === 'resident' ? { requestedBy: req.user.id } : {};
+    const ticketFilter = req.user.role === 'resident' ? { createdBy: req.user.id } : {};
+    const paymentFilter = req.user.role === 'resident' ? { paidBy: req.user.id } : {};
+
     // Current period stats
     const [totalBins, activeBins, binsNeedingCollection, totalCollections, todayCollections, currentMonthCollections, lastMonthCollections, totalPickups, pendingPickups, currentMonthPickups, lastMonthPickups, totalTickets, openTickets, currentMonthTickets, lastMonthTickets, totalRevenue, monthlyRevenue, activeRoutes, totalUsers, lastMonthUsers, usersByRole] = await Promise.all([
-      SmartBin.countDocuments(),
-      SmartBin.countDocuments({ status: 'active' }),
-      SmartBin.countDocuments({ fillLevel: { $gte: 80 }, status: 'active' }),
+      SmartBin.countDocuments(binFilter),
+      SmartBin.countDocuments({ ...binFilter, status: 'active' }),
+      SmartBin.countDocuments({ ...binFilter, fillLevel: { $gte: 80 }, status: 'active' }),
       CollectionRecord.countDocuments(),
       CollectionRecord.countDocuments({ collectionDate: { $gte: new Date(now.setHours(0, 0, 0, 0)), $lt: new Date(now.setHours(23, 59, 59, 999)) } }),
       CollectionRecord.countDocuments({ collectionDate: { $gte: startOfCurrentMonth } }),
       CollectionRecord.countDocuments({ collectionDate: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
-      PickupRequest.countDocuments(),
-      PickupRequest.countDocuments({ status: 'pending' }),
-      PickupRequest.countDocuments({ createdAt: { $gte: startOfCurrentMonth } }),
-      PickupRequest.countDocuments({ createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
-      Ticket.countDocuments(),
-      Ticket.countDocuments({ status: { $in: ['open', 'in-progress'] } }),
-      Ticket.countDocuments({ createdAt: { $gte: startOfCurrentMonth } }),
-      Ticket.countDocuments({ createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
-      Payment.aggregate([{ $match: { status: 'completed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Payment.aggregate([{ $match: { status: 'completed', createdAt: { $gte: startOfCurrentMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      PickupRequest.countDocuments(pickupFilter),
+      PickupRequest.countDocuments({ ...pickupFilter, status: 'pending' }),
+      PickupRequest.countDocuments({ ...pickupFilter, createdAt: { $gte: startOfCurrentMonth } }),
+      PickupRequest.countDocuments({ ...pickupFilter, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      Ticket.countDocuments(ticketFilter),
+      Ticket.countDocuments({ ...ticketFilter, status: { $in: ['open', 'in-progress'] } }),
+      Ticket.countDocuments({ ...ticketFilter, createdAt: { $gte: startOfCurrentMonth } }),
+      Ticket.countDocuments({ ...ticketFilter, createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } }),
+      Payment.aggregate([{ $match: { ...paymentFilter, status: 'completed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+      Payment.aggregate([{ $match: { ...paymentFilter, status: 'completed', createdAt: { $gte: startOfCurrentMonth } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
       Route.countDocuments({ status: 'active' }),
-      User.countDocuments(),
-      User.countDocuments({ createdAt: { $lte: endOfLastMonth } }),
-      User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }])
+      // Only show user stats for non-residents
+      req.user.role !== 'resident' ? User.countDocuments() : Promise.resolve(0),
+      req.user.role !== 'resident' ? User.countDocuments({ createdAt: { $lte: endOfLastMonth } }) : Promise.resolve(0),
+      req.user.role !== 'resident' ? User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]) : Promise.resolve([])
     ]);
 
     // Calculate percentage changes

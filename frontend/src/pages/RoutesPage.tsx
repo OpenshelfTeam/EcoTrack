@@ -14,19 +14,37 @@ import { routeService, type Route } from '../services/route.service';
 import { collectionService } from '../services/collection.service';
 import { useAuth } from '../contexts/AuthContext';
 
-// Map bounds setter component
+// Map bounds setter component - keeps Sri Lanka view with route visible
 const MapBoundsSetter = ({ bins }: { bins: any[] }) => {
   const map = useMap();
   
-  if (bins && bins.length > 0) {
-    const bounds = bins
-      .filter(bin => bin.location?.coordinates)
-      .map(bin => [bin.location.coordinates[1], bin.location.coordinates[0]] as [number, number]);
-    
-    if (bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [50, 50] });
+  useEffect(() => {
+    if (bins && bins.length > 0) {
+      const bounds = bins
+        .filter(bin => bin.location?.coordinates)
+        .map(bin => [bin.location.coordinates[1], bin.location.coordinates[0]] as [number, number]);
+      
+      if (bounds.length > 0) {
+        // Calculate the center and zoom to show route while keeping Sri Lanka view
+        const latitudes = bounds.map(b => b[0]);
+        const longitudes = bounds.map(b => b[1]);
+        const centerLat = (Math.max(...latitudes) + Math.min(...latitudes)) / 2;
+        const centerLng = (Math.max(...longitudes) + Math.min(...longitudes)) / 2;
+        
+        // Determine appropriate zoom based on route spread
+        const latSpread = Math.max(...latitudes) - Math.min(...latitudes);
+        const lngSpread = Math.max(...longitudes) - Math.min(...longitudes);
+        const maxSpread = Math.max(latSpread, lngSpread);
+        
+        let zoom = 13; // Default city-level
+        if (maxSpread > 0.5) zoom = 10;  // Large area
+        else if (maxSpread > 0.2) zoom = 12;  // Medium area
+        else if (maxSpread < 0.05) zoom = 14; // Small neighborhood
+        
+        map.setView([centerLat, centerLng], zoom, { animate: true });
+      }
     }
-  }
+  }, [bins, map]);
   
   return null;
 };
@@ -801,11 +819,15 @@ export const RoutesPage = () => {
                     <div className="relative rounded-xl overflow-hidden border-2 border-blue-100 mb-4" style={{ height: '500px' }}>
                       {activeRoute.bins && activeRoute.bins.length > 0 && activeRoute.bins[0].location?.coordinates ? (
                         <MapContainer
-                          center={[
-                            activeRoute.bins[0].location.coordinates[1],
-                            activeRoute.bins[0].location.coordinates[0]
+                          center={[7.8731, 80.7718]} // Center of Sri Lanka
+                          zoom={10}
+                          minZoom={7}
+                          maxZoom={18}
+                          maxBounds={[
+                            [5.5, 79.0],  // Southwest - extended to show only ocean
+                            [10.2, 82.5]  // Northeast - extended to show only ocean
                           ]}
-                          zoom={13}
+                          maxBoundsViscosity={1.0}
                           style={{ height: '100%', width: '100%' }}
                           className="z-0"
                         >

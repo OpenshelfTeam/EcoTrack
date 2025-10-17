@@ -4,9 +4,36 @@ import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Trash2, Plus, Search, Filter, MapPin, Edit, Trash,
-  CheckCircle, AlertCircle, Clock, Map, List, X, Loader2
+  CheckCircle, AlertCircle, Clock, Map, List, X, Loader2, Navigation
 } from 'lucide-react';
 import { binService } from '../services/bin.service';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+// Component to handle map clicks
+function LocationMarker({ position, setPosition }: { position: { lat: number; lng: number } | null; setPosition: (pos: { lat: number; lng: number }) => void }) {
+  useMapEvents({
+    click(e) {
+      setPosition({
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+      });
+    },
+  });
+
+  return position === null ? null : (
+    <Marker position={[position.lat, position.lng]} />
+  );
+}
 
 interface Bin {
   id: string;
@@ -33,6 +60,8 @@ export const BinsPage = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedBin, setSelectedBin] = useState<Bin | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [tempMapLocation, setTempMapLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -232,6 +261,33 @@ export const BinsPage = () => {
         maximumAge: 0
       }
     );
+  };
+
+  const handleMapLocationSelect = async () => {
+    if (tempMapLocation) {
+      setBinCoordinates(tempMapLocation);
+
+      // Reverse geocode to get address
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${tempMapLocation.lat}&lon=${tempMapLocation.lng}`
+        );
+        const data = await response.json();
+        
+        if (data.display_name) {
+          setNewBin({ ...newBin, address: data.display_name });
+        }
+      } catch (error) {
+        console.error('Error getting address:', error);
+        setNewBin({ 
+          ...newBin, 
+          address: `Location: ${tempMapLocation.lat.toFixed(6)}, ${tempMapLocation.lng.toFixed(6)}` 
+        });
+      }
+
+      setShowMapPicker(false);
+      setTempMapLocation(null);
+    }
   };
 
   const handleEditBin = () => {
@@ -697,40 +753,50 @@ export const BinsPage = () => {
 
       {/* Add Bin Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Add New Bin</h2>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  resetNewBin();
-                }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full my-8 transform transition-all animate-fadeIn">
+            <div className="sticky top-0 bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6 rounded-t-3xl z-10">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Plus className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Add New Bin</h2>
+                    <p className="text-emerald-50 text-sm mt-1">Create a new smart waste bin</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetNewBin();
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-8 space-y-6 max-h-[calc(90vh-200px)] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Location Name *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Location Name *</label>
                   <input
                     type="text"
                     value={newBin.location}
                     onChange={(e) => setNewBin({ ...newBin, location: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                     placeholder="e.g., Central Park North"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Type *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Type *</label>
                   <select
                     value={newBin.type}
                     onChange={(e) => setNewBin({ ...newBin, type: e.target.value as Bin['type'] })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   >
                     <option value="general">General Waste</option>
                     <option value="recyclable">Recyclable</option>
@@ -741,20 +807,20 @@ export const BinsPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Address *</label>
-                <div className="flex gap-2">
+                <label className="block text-sm font-bold text-gray-700 mb-2">Address *</label>
+                <div className="flex gap-3">
                   <input
                     type="text"
                     value={newBin.address}
                     onChange={(e) => setNewBin({ ...newBin, address: e.target.value })}
-                    className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                     placeholder="Full address including district"
                   />
                   <button
                     type="button"
                     onClick={getCurrentLocation}
                     disabled={gettingLocation}
-                    className="px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-5 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg font-semibold"
                     title="Use my current location"
                   >
                     {gettingLocation ? (
@@ -764,15 +830,24 @@ export const BinsPage = () => {
                       </>
                     ) : (
                       <>
-                        <MapPin className="w-5 h-5" />
-                        Current Location
+                        <Navigation className="w-5 h-5" />
+                        GPS
                       </>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker(true)}
+                    className="px-5 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl hover:from-purple-600 hover:to-pink-700 transition-all flex items-center gap-2 whitespace-nowrap shadow-md hover:shadow-lg font-semibold"
+                    title="Select location on map"
+                  >
+                    <Map className="w-5 h-5" />
+                    Map
+                  </button>
                 </div>
                 {binCoordinates && (
-                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" />
+                  <p className="text-sm text-emerald-600 mt-2 flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-lg">
+                    <CheckCircle className="w-4 h-4" />
                     Location captured: {binCoordinates.lat.toFixed(6)}, {binCoordinates.lng.toFixed(6)}
                   </p>
                 )}
@@ -780,34 +855,34 @@ export const BinsPage = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Capacity (L) *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Capacity (L) *</label>
                   <input
                     type="number"
                     value={newBin.capacity}
                     onChange={(e) => setNewBin({ ...newBin, capacity: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                     min="0"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Level (%)</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Current Level (%)</label>
                   <input
                     type="number"
                     value={newBin.currentLevel}
                     onChange={(e) => setNewBin({ ...newBin, currentLevel: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                     min="0"
                     max="100"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Status *</label>
                   <select
                     value={newBin.status}
                     onChange={(e) => setNewBin({ ...newBin, status: e.target.value as Bin['status'] })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   >
                     <option value="active">Active</option>
                     <option value="full">Full</option>
@@ -819,44 +894,46 @@ export const BinsPage = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Last Collection</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Last Collection</label>
                   <input
                     type="date"
                     value={newBin.lastCollection}
                     onChange={(e) => setNewBin({ ...newBin, lastCollection: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Next Collection</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Next Collection</label>
                   <input
                     type="date"
                     value={newBin.nextCollection}
                     onChange={(e) => setNewBin({ ...newBin, nextCollection: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  resetNewBin();
-                }}
-                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddBin}
-                disabled={!newBin.location || !newBin.address}
-                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-              >
-                Add Bin
-              </button>
+            <div className="sticky bottom-0 bg-gray-50 px-8 py-5 rounded-b-3xl border-t border-gray-200">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetNewBin();
+                  }}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddBin}
+                  disabled={!newBin.location || !newBin.address}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Add Bin
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -864,39 +941,49 @@ export const BinsPage = () => {
 
       {/* Edit Bin Modal */}
       {showEditModal && selectedBin && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Edit Bin</h2>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedBin(null);
-                }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full my-8 transform transition-all animate-fadeIn">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-6 rounded-t-3xl z-10">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Edit className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Edit Bin</h2>
+                    <p className="text-blue-50 text-sm mt-1">Update bin information</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedBin(null);
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-8 space-y-6 max-h-[calc(90vh-200px)] overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Location Name *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Location Name *</label>
                   <input
                     type="text"
                     value={selectedBin.location}
                     onChange={(e) => setSelectedBin({ ...selectedBin, location: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Type *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Type *</label>
                   <select
                     value={selectedBin.type}
                     onChange={(e) => setSelectedBin({ ...selectedBin, type: e.target.value as Bin['type'] })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   >
                     <option value="general">General Waste</option>
                     <option value="recyclable">Recyclable</option>
@@ -907,45 +994,45 @@ export const BinsPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Address *</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Address *</label>
                 <input
                   type="text"
                   value={selectedBin.address}
                   onChange={(e) => setSelectedBin({ ...selectedBin, address: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Capacity (L) *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Capacity (L) *</label>
                   <input
                     type="number"
                     value={selectedBin.capacity}
                     onChange={(e) => setSelectedBin({ ...selectedBin, capacity: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                     min="0"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Level (%)</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Current Level (%)</label>
                   <input
                     type="number"
                     value={selectedBin.currentLevel}
                     onChange={(e) => setSelectedBin({ ...selectedBin, currentLevel: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                     min="0"
                     max="100"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status *</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Status *</label>
                   <select
                     value={selectedBin.status}
                     onChange={(e) => setSelectedBin({ ...selectedBin, status: e.target.value as Bin['status'] })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   >
                     <option value="active">Active</option>
                     <option value="full">Full</option>
@@ -957,43 +1044,129 @@ export const BinsPage = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Last Collection</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Last Collection</label>
                   <input
                     type="date"
                     value={selectedBin.lastCollection}
                     onChange={(e) => setSelectedBin({ ...selectedBin, lastCollection: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Next Collection</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Next Collection</label>
                   <input
                     type="date"
                     value={selectedBin.nextCollection}
                     onChange={(e) => setSelectedBin({ ...selectedBin, nextCollection: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedBin(null);
-                }}
-                className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors font-medium"
+            <div className="sticky bottom-0 bg-gray-50 px-8 py-5 rounded-b-3xl border-t border-gray-200">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedBin(null);
+                  }}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEditBin}
+                  className="flex-1 px-8 py-3.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map Location Picker Modal */}
+      {showMapPicker && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full h-[80vh] flex flex-col transform transition-all animate-fadeIn">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-500 to-pink-600 px-8 py-6 rounded-t-3xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Map className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Select Location on Map</h2>
+                    <p className="text-purple-50 text-sm mt-1">Click anywhere on the map to set bin location</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowMapPicker(false);
+                    setTempMapLocation(null);
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
+            </div>
+
+            {/* Map Container */}
+            <div className="flex-1 relative">
+              <MapContainer
+                center={[7.8731, 80.7718]} // Center of Sri Lanka
+                zoom={7.5}
+                minZoom={7}
+                maxZoom={18}
+                maxBounds={[
+                  [5.5, 79.0],  // Southwest - extended to show only ocean
+                  [10.2, 82.5]  // Northeast - extended to show only ocean
+                ]}
+                maxBoundsViscosity={1.0}
+                style={{ height: '100%', width: '100%' }}
+                className="rounded-b-3xl"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleEditBin}
-                className="flex-1 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all font-medium"
-              >
-                Save Changes
-              </button>
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <LocationMarker position={tempMapLocation} setPosition={setTempMapLocation} />
+              </MapContainer>
+
+              {/* Floating info card */}
+              {tempMapLocation && (
+                <div className="absolute top-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl p-5 z-[1000]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-gray-700 mb-1">Selected Location</p>
+                      <p className="text-lg font-bold text-purple-600">
+                        {tempMapLocation.lat.toFixed(6)}, {tempMapLocation.lng.toFixed(6)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleMapLocationSelect}
+                      className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl hover:from-purple-600 hover:to-pink-700 transition-all shadow-md hover:shadow-lg font-semibold"
+                    >
+                      Confirm Location
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Instructions overlay */}
+              {!tempMapLocation && (
+                <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl px-6 py-4 z-[1000]">
+                  <p className="text-gray-700 font-medium flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-purple-500" />
+                    Click on the map to select a location
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
