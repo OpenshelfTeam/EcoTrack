@@ -76,4 +76,47 @@ export const collectionService = {
     const response = await api.post('/collections/routes', data);
     return response.data;
   },
+
+  // Record bin collection during route execution
+  async recordBinCollection(data: {
+    route: string;
+    bin: string;
+    status: 'collected' | 'empty' | 'exception';
+    wasteWeight?: number;
+    binLevelBefore?: number;
+    binLevelAfter?: number;
+    notes?: string;
+    exception?: {
+      issueType: string;
+      description: string;
+      photo?: File;
+    };
+  }) {
+    const formData = new FormData();
+    
+    formData.append('route', data.route);
+    formData.append('bin', data.bin);
+    formData.append('status', data.status);
+    
+    if (data.wasteWeight !== undefined) formData.append('wasteWeight', data.wasteWeight.toString());
+    if (data.binLevelBefore !== undefined) formData.append('binLevelBefore', data.binLevelBefore.toString());
+    if (data.binLevelAfter !== undefined) formData.append('binLevelAfter', data.binLevelAfter.toString());
+    if (data.notes) formData.append('notes', data.notes);
+    
+    if (data.exception) {
+      formData.append('exceptionReported', 'true');
+      formData.append('exceptionReason', data.exception.issueType);
+      formData.append('exceptionDescription', data.exception.description);
+      if (data.exception.photo) {
+        formData.append('exceptionPhoto', data.exception.photo);
+      }
+    }
+
+    const response = await api.post('/collections', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
 };

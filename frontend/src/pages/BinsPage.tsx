@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Trash2, Plus, Search, Filter, MapPin, Edit, Trash,
-  CheckCircle, AlertCircle, Clock, Map, List, X
+  CheckCircle, AlertCircle, Clock, Map, List, X, Loader2
 } from 'lucide-react';
 import { binService } from '../services/bin.service';
 
@@ -23,6 +24,7 @@ interface Bin {
 type ViewMode = 'list' | 'grid' | 'map';
 
 export const BinsPage = () => {
+  const { user } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -41,6 +43,7 @@ export const BinsPage = () => {
       search: searchTerm,
       status: filterStatus !== 'all' ? filterStatus : undefined,
       wasteType: filterType !== 'all' ? filterType : undefined,
+      limit: 1000, // Get up to 1000 bins to show all
     }),
   });
 
@@ -106,6 +109,9 @@ export const BinsPage = () => {
     nextCollection: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
 
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [binCoordinates, setBinCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+
   // Bins are already filtered by the API query
   const filteredBins = bins;
 
@@ -163,10 +169,15 @@ export const BinsPage = () => {
   };
 
   const handleAddBin = () => {
+    // Use captured coordinates or default to Colombo
+    const coords = binCoordinates 
+      ? [binCoordinates.lng, binCoordinates.lat] 
+      : [79.8612, 6.9271];
+
     createBinMutation.mutate({
       location: {
         type: 'Point',
-        coordinates: [79.8612, 6.9271], // Default Colombo coordinates
+        coordinates: coords,
         address: newBin.address,
       },
       capacity: newBin.capacity,
@@ -175,6 +186,52 @@ export const BinsPage = () => {
       status: newBin.status,
       lastEmptied: newBin.lastCollection ? new Date(newBin.lastCollection) : null,
     });
+  };
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setBinCoordinates({ lat: latitude, lng: longitude });
+
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+          );
+          const data = await response.json();
+          
+          if (data.display_name) {
+            setNewBin({ ...newBin, address: data.display_name });
+          }
+        } catch (error) {
+          console.error('Error getting address:', error);
+          setNewBin({ 
+            ...newBin, 
+            address: `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
+          });
+        }
+
+        setGettingLocation(false);
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        alert('Unable to get your location. Please ensure location permissions are enabled.');
+        setGettingLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
   };
 
   const handleEditBin = () => {
@@ -213,6 +270,8 @@ export const BinsPage = () => {
       lastCollection: new Date().toISOString().split('T')[0],
       nextCollection: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     });
+    setBinCoordinates(null);
+    setGettingLocation(false);
   };
 
   return (
@@ -225,9 +284,14 @@ export const BinsPage = () => {
               <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl text-white">
                 <Trash2 className="w-7 h-7" />
               </div>
-              Waste Bins Management
+              {user?.role === 'resident' ? 'My Waste Bins' : 'Waste Bins Management'}
             </h1>
-            <p className="text-gray-600 mt-1">Monitor and manage all waste collection bins</p>
+            <p className="text-gray-600 mt-1">
+              {user?.role === 'resident' 
+                ? 'Register and manage your household waste bins'
+                : 'Monitor and manage all waste collection bins'
+              }
+            </p>
           </div>
           <button
             onClick={() => setShowAddModal(true)}
@@ -678,13 +742,40 @@ export const BinsPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Address *</label>
-                <input
-                  type="text"
-                  value={newBin.address}
-                  onChange={(e) => setNewBin({ ...newBin, address: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  placeholder="Full address including district"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newBin.address}
+                    onChange={(e) => setNewBin({ ...newBin, address: e.target.value })}
+                    className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Full address including district"
+                  />
+                  <button
+                    type="button"
+                    onClick={getCurrentLocation}
+                    disabled={gettingLocation}
+                    className="px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Use my current location"
+                  >
+                    {gettingLocation ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Getting...
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-5 h-5" />
+                        Current Location
+                      </>
+                    )}
+                  </button>
+                </div>
+                {binCoordinates && (
+                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    Location captured: {binCoordinates.lat.toFixed(6)}, {binCoordinates.lng.toFixed(6)}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
