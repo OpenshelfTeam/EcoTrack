@@ -1,21 +1,116 @@
 import React, { useState } from 'react';
 import { Layout } from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Phone, Briefcase, MapPin, Calendar, Shield, Edit2, Save, X, Camera } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { User, Mail, Phone, Briefcase, MapPin, Calendar, Shield, Edit2, Save, X, Camera, Loader2 } from 'lucide-react';
+import { userService } from '../services/user.service';
 
 export const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  
   const [formData, setFormData] = useState({
     firstName: user?.firstName || '',
     lastName: user?.lastName || '',
     email: user?.email || '',
     phone: user?.phone || '',
+    street: user?.address?.street || '',
+    city: user?.address?.city || '',
+    province: user?.address?.province || user?.address?.state || '',
+    postalCode: user?.address?.postalCode || user?.address?.zipCode || '',
+    fullAddress: ''
   });
 
+  // Update profile mutation
+  const updateProfileMutation = useMutation({
+    mutationFn: (data: any) => userService.updateProfile(user!._id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      refreshUser && refreshUser();
+      setIsEditing(false);
+      alert('Profile updated successfully!');
+    },
+    onError: (error: any) => {
+      alert(`Error updating profile: ${error.response?.data?.message || error.message}`);
+    }
+  });
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        setCoordinates({ lat: latitude, lng: longitude });
+
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+          );
+          const data = await response.json();
+          
+          if (data.display_name) {
+            setFormData({ 
+              ...formData, 
+              fullAddress: data.display_name,
+              street: data.address?.road || data.address?.suburb || '',
+              city: data.address?.city || data.address?.town || data.address?.village || '',
+              province: data.address?.state || data.address?.province || '',
+              postalCode: data.address?.postcode || ''
+            });
+          }
+        } catch (error) {
+          console.error('Error getting address:', error);
+          setFormData({ 
+            ...formData, 
+            fullAddress: `Location: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
+          });
+        }
+
+        setGettingLocation(false);
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        alert('Unable to get your location. Please ensure location permissions are enabled.');
+        setGettingLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  };
+
   const handleSave = () => {
-    // TODO: Implement save functionality
-    setIsEditing(false);
+    const updateData: any = {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      phone: formData.phone,
+      address: {
+        street: formData.street,
+        city: formData.city,
+        province: formData.province,
+        postalCode: formData.postalCode,
+      }
+    };
+
+    // Add coordinates if available
+    if (coordinates) {
+      updateData.address.coordinates = [coordinates.lng, coordinates.lat];
+    }
+
+    updateProfileMutation.mutate(updateData);
   };
 
   return (
@@ -71,14 +166,40 @@ export const ProfilePage: React.FC = () => {
               <div className="flex gap-2">
                 <button
                   onClick={handleSave}
-                  className="bg-white text-emerald-600 px-5 py-3 rounded-xl font-semibold hover:shadow-xl transition-all duration-300 flex items-center gap-2"
+                  disabled={updateProfileMutation.isPending}
+                  className="bg-white text-emerald-600 px-5 py-3 rounded-xl font-semibold hover:shadow-xl transition-all duration-300 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Save className="h-5 w-5" />
-                  Save
+                  {updateProfileMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-5 w-5" />
+                      Save
+                    </>
+                  )}
                 </button>
                 <button
-                  onClick={() => setIsEditing(false)}
-                  className="bg-white/20 backdrop-blur-md text-white px-5 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all duration-300 flex items-center gap-2"
+                  onClick={() => {
+                    setIsEditing(false);
+                    // Reset form data to user's current data
+                    setFormData({
+                      firstName: user?.firstName || '',
+                      lastName: user?.lastName || '',
+                      email: user?.email || '',
+                      phone: user?.phone || '',
+                      street: user?.address?.street || '',
+                      city: user?.address?.city || '',
+                      province: user?.address?.province || user?.address?.state || '',
+                      postalCode: user?.address?.postalCode || user?.address?.zipCode || '',
+                      fullAddress: ''
+                    });
+                    setCoordinates(null);
+                  }}
+                  disabled={updateProfileMutation.isPending}
+                  className="bg-white/20 backdrop-blur-md text-white px-5 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all duration-300 flex items-center gap-2 disabled:opacity-50"
                 >
                   <X className="h-5 w-5" />
                   Cancel
@@ -132,7 +253,7 @@ export const ProfilePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                   <Mail className="h-4 w-4" />
                   Email Address
                 </label>
@@ -151,7 +272,7 @@ export const ProfilePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                   <Phone className="h-4 w-4" />
                   Phone Number
                 </label>
@@ -170,30 +291,92 @@ export const ProfilePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
                   Address
                 </label>
-                <div className="px-4 py-3 bg-gray-50 rounded-xl font-medium text-gray-900">
-                  {user?.address ? (
-                    typeof user.address === 'string' ? (
-                      user.address
+                {isEditing ? (
+                  <div className="space-y-3">
+                    {/* Get Current Location Button */}
+                    <button
+                      type="button"
+                      onClick={getCurrentLocation}
+                      disabled={gettingLocation || updateProfileMutation.isPending}
+                      className="w-full px-4 py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {gettingLocation ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Getting Location...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="w-5 h-5" />
+                          Use Current Location
+                        </>
+                      )}
+                    </button>
+                    
+                    {/* Address Fields */}
+                    <input
+                      type="text"
+                      value={formData.street}
+                      onChange={(e) => setFormData({ ...formData, street: e.target.value })}
+                      placeholder="Street Address"
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <input
+                        type="text"
+                        value={formData.city}
+                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                        placeholder="City"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                      />
+                      <input
+                        type="text"
+                        value={formData.province}
+                        onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                        placeholder="Province"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                      />
+                      <input
+                        type="text"
+                        value={formData.postalCode}
+                        onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                        placeholder="Postal Code"
+                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                      />
+                    </div>
+                    {coordinates && (
+                      <p className="text-xs text-emerald-600 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        Location captured: {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-4 py-3 bg-gray-50 rounded-xl font-medium text-gray-900">
+                    {user?.address ? (
+                      typeof user.address === 'string' ? (
+                        user.address
+                      ) : (
+                        <div className="space-y-1">
+                          {user.address.street && <div>{user.address.street}</div>}
+                          {(user.address.city || user.address.state || user.address.province || user.address.zipCode || user.address.postalCode) && (
+                            <div>
+                              {(user.address.city) && `${user.address.city}`}
+                              {(user.address.state || user.address.province) && `, ${user.address.state || user.address.province}`}
+                              {(user.address.zipCode || user.address.postalCode) && ` ${user.address.zipCode || user.address.postalCode}`}
+                            </div>
+                          )}
+                        </div>
+                      )
                     ) : (
-                      <div className="space-y-1">
-                        {user.address.street && <div>{user.address.street}</div>}
-                        {(user.address.city || user.address.state || user.address.zipCode) && (
-                          <div>
-                            {user.address.city && `${user.address.city}`}
-                            {user.address.state && `, ${user.address.state}`}
-                            {user.address.zipCode && ` ${user.address.zipCode}`}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  ) : (
-                    'No address provided'
-                  )}
-                </div>
+                      'No address provided'
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
