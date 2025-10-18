@@ -26,6 +26,14 @@ export interface Route {
   collectedBins: number;
   distance: number;
   notes?: string;
+  startLocation?: {
+    coordinates: number[];
+    address?: string;
+  };
+  endLocation?: {
+    coordinates: number[];
+    address?: string;
+  };
 }
 
 export interface RouteStats {

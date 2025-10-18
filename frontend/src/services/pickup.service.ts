@@ -94,4 +94,13 @@ export const pickupService = {
     const response = await api.get('/pickups/stats');
     return response.data;
   },
+
+  async completePickup(id: string, data: { 
+    binStatus: 'collected' | 'empty' | 'damaged';
+    collectorNotes?: string;
+    images?: string[];
+  }) {
+    const response = await api.patch(`/pickups/${id}/complete`, data);
+    return response.data;
+  },
 };

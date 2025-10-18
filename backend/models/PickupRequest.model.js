@@ -112,8 +112,21 @@ const pickupRequestSchema = new mongoose.Schema({
     phone: String,
     email: String
   },
+  binStatus: {
+    type: String,
+    enum: ['collected', 'empty', 'damaged'],
+    default: null
+  },
+  collectorNotes: {
+    type: String,
+    default: null
+  },
+  completionImages: [{
+    type: String // URLs to completion proof images
+  }],
   statusHistory: [{
     status: String,
+    binStatus: String,
     changedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
