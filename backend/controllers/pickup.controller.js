@@ -349,7 +349,9 @@ export const assignCollector = async (req, res) => {
   try {
     const { collectorId, scheduledDate } = req.body;
 
-    const pickupRequest = await PickupRequest.findById(req.params.id);
+    // First, populate the pickup request to get resident details
+    const pickupRequest = await PickupRequest.findById(req.params.id)
+      .populate('requestedBy', 'firstName lastName email');
 
     if (!pickupRequest) {
       return res.status(404).json({
@@ -358,15 +360,31 @@ export const assignCollector = async (req, res) => {
       });
     }
 
-    // Verify collector exists and has collector role
-    const collector = await User.findById(collectorId);
-    if (!collector || collector.role !== 'collector') {
+    // Verify requestedBy exists
+    if (!pickupRequest.requestedBy) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid collector'
+        message: 'Pickup request has no associated resident'
       });
     }
 
+    // Verify collector exists and has collector role
+    const collector = await User.findById(collectorId);
+    if (!collector) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collector not found'
+      });
+    }
+
+    if (collector.role !== 'collector') {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected user is not a collector'
+      });
+    }
+
+    // Update pickup request
     pickupRequest.assignedCollector = collectorId;
     pickupRequest.scheduledDate = scheduledDate;
     pickupRequest.status = 'scheduled';
@@ -379,9 +397,9 @@ export const assignCollector = async (req, res) => {
     });
 
     await pickupRequest.save();
-    await pickupRequest.populate('requestedBy assignedCollector');
+    await pickupRequest.populate('assignedCollector', 'firstName lastName email');
 
-    // Notify the assigned collector
+    // Format scheduled date
     const scheduledDateDisplay = new Date(scheduledDate).toLocaleDateString('en-US', {
       weekday: 'short',
       year: 'numeric',
@@ -389,16 +407,21 @@ export const assignCollector = async (req, res) => {
       day: 'numeric'
     });
     
+    // Notify the assigned collector
     await Notification.create({
       recipient: collectorId,
       type: 'pickup-scheduled',
       title: 'New Pickup Assignment',
-      message: `You have been assigned to collect ${pickupRequest.wasteType} waste from ${pickupRequest.requestedBy.firstName} ${pickupRequest.requestedBy.lastName} on ${scheduledDateDisplay}.`,
+      message: `You have been assigned to collect ${pickupRequest.wasteType} waste from ${pickupRequest.requestedBy.firstName} ${pickupRequest.requestedBy.lastName} on ${scheduledDateDisplay}. Address: ${pickupRequest.pickupLocation.address}`,
       priority: 'high',
       channel: ['in-app', 'email', 'sms'],
       relatedEntity: {
-        entityType: 'collection',
+        entityType: 'pickup',
         entityId: pickupRequest._id
+      },
+      metadata: {
+        actionUrl: `/routes?pickup=${pickupRequest._id}`,
+        actionLabel: 'View Pickup'
       }
     });
 
@@ -411,8 +434,12 @@ export const assignCollector = async (req, res) => {
       priority: 'medium',
       channel: ['in-app', 'email'],
       relatedEntity: {
-        entityType: 'collection',
+        entityType: 'pickup',
         entityId: pickupRequest._id
+      },
+      metadata: {
+        actionUrl: '/pickups',
+        actionLabel: 'View Pickups'
       }
     });
 
@@ -422,6 +449,7 @@ export const assignCollector = async (req, res) => {
       data: pickupRequest
     });
   } catch (error) {
+    console.error('Error assigning collector:', error);
     res.status(400).json({
       success: false,
       message: error.message
@@ -543,6 +571,159 @@ export const getPickupStats = async (req, res) => {
       data: stats[0]
     });
   } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Complete pickup with bin status
+// @route   PATCH /api/pickups/:id/complete
+// @access  Private (Collector)
+export const completePickup = async (req, res) => {
+  try {
+    const { binStatus, collectorNotes, images } = req.body;
+
+    if (!binStatus || !['collected', 'empty', 'damaged'].includes(binStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid bin status is required (collected, empty, or damaged)'
+      });
+    }
+
+    const pickup = await PickupRequest.findById(req.params.id)
+      .populate('requestedBy', 'firstName lastName email phone')
+      .populate('assignedCollector', 'firstName lastName email phone');
+
+    if (!pickup) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pickup request not found'
+      });
+    }
+
+    // Verify collector is assigned to this pickup
+    if (pickup.assignedCollector?._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this pickup'
+      });
+    }
+
+    // Update pickup status based on bin status
+    let newStatus = 'completed';
+    let statusMessage = '';
+    let notificationTitle = '';
+    let notificationMessage = '';
+    let notificationPriority = 'medium';
+
+    switch (binStatus) {
+      case 'collected':
+        newStatus = 'completed';
+        statusMessage = 'Waste collected successfully';
+        notificationTitle = 'Waste Collected';
+        notificationMessage = `Your ${pickup.wasteType} waste has been collected successfully by ${pickup.assignedCollector.firstName} ${pickup.assignedCollector.lastName}.`;
+        break;
+      
+      case 'empty':
+        newStatus = 'completed';
+        statusMessage = 'No waste found (bin was empty)';
+        notificationTitle = 'Pickup Completed - No Waste';
+        notificationMessage = `No waste was found during your scheduled pickup on ${new Date(pickup.scheduledDate).toLocaleDateString()}. The bin was empty.`;
+        notificationPriority = 'low';
+        break;
+      
+      case 'damaged':
+        newStatus = 'completed';
+        statusMessage = 'Bin damaged - replacement needed';
+        notificationTitle = 'Bin Damaged - Replacement Required';
+        notificationMessage = `Your waste bin was found to be damaged during collection. Our team will contact you to arrange a replacement bin.`;
+        notificationPriority = 'high';
+        break;
+    }
+
+    // Update pickup
+    pickup.status = newStatus;
+    pickup.binStatus = binStatus;
+    pickup.collectorNotes = collectorNotes || statusMessage;
+    pickup.completedDate = new Date();
+    
+    if (images && images.length > 0) {
+      pickup.completionImages = images;
+    }
+
+    // Add to status history
+    pickup.statusHistory.push({
+      status: newStatus,
+      binStatus: binStatus,
+      updatedBy: req.user._id,
+      updatedAt: new Date(),
+      notes: collectorNotes || statusMessage
+    });
+
+    await pickup.save();
+
+    // Notify resident
+    await Notification.create({
+      recipient: pickup.requestedBy._id,
+      type: 'pickup-completed',
+      title: notificationTitle,
+      message: notificationMessage,
+      priority: notificationPriority,
+      channel: ['in-app', 'email'],
+      relatedEntity: {
+        entityType: 'pickup',
+        entityId: pickup._id
+      }
+    });
+
+    // If bin is damaged, notify resident, operators and admins
+    if (binStatus === 'damaged') {
+      // Notify the resident
+      await Notification.create({
+        recipient: pickup.requestedBy._id,
+        type: 'bin-damaged',
+        title: 'Bin Reported as Damaged',
+        message: `Your bin has been reported as damaged during the pickup at ${pickup.pickupLocation?.address || 'your location'}. Our team will contact you shortly for a replacement.`,
+        priority: 'high',
+        channel: ['in-app', 'email'],
+        relatedEntity: {
+          entityType: 'pickup',
+          entityId: pickup._id
+        }
+      });
+
+      // Notify operators and admins
+      const operators = await User.find({
+        role: { $in: ['operator', 'admin'] },
+        isActive: true
+      });
+
+      for (const operator of operators) {
+        await Notification.create({
+          recipient: operator._id,
+          type: 'bin-damaged',
+          title: 'Damaged Bin Reported',
+          message: `Collector ${pickup.assignedCollector.firstName} ${pickup.assignedCollector.lastName} reported a damaged bin at ${pickup.pickupLocation?.address || 'pickup location'}. Resident: ${pickup.requestedBy.firstName} ${pickup.requestedBy.lastName}. Immediate replacement required.`,
+          priority: 'high',
+          channel: ['in-app', 'email'],
+          relatedEntity: {
+            entityType: 'pickup',
+            entityId: pickup._id
+          }
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: statusMessage,
+      data: pickup
+    });
+
+  } catch (error) {
+    console.error('Complete pickup error:', error);
     res.status(400).json({
       success: false,
       message: error.message
