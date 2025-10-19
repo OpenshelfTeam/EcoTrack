@@ -622,6 +622,21 @@ export const BinsPage = () => {
                     <span className="text-sm text-gray-600">Capacity</span>
                     <span className="text-sm font-medium text-gray-900">{bin.capacity}L</span>
                   </div>
+
+                  {/* Damage Warning */}
+                  {(bin.status === 'maintenance' || bin.status === 'damaged') && (
+                    <div className="mt-3 p-3 bg-red-50 border-l-4 border-red-500 rounded">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-bold text-red-800">⚠️ Bin Damaged</p>
+                          <p className="text-xs text-red-700 mt-1">
+                            This bin is damaged and needs replacement. Our team has been notified and will contact you soon.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Card Footer - Actions */}

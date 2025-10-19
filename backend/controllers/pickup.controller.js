@@ -665,16 +665,15 @@ export const completePickup = async (req, res) => {
 
     await pickup.save();
 
-    // Update bin fill level if waste was collected successfully
-    if (binStatus === 'collected') {
+    // Update bin based on collection status
+    if (binStatus === 'collected' || binStatus === 'empty' || binStatus === 'damaged') {
       try {
         // Find bins at the pickup location (within 50 meters)
         const pickupLng = pickup.pickupLocation.coordinates[0];
         const pickupLat = pickup.pickupLocation.coordinates[1];
         
-        const nearbyBins = await SmartBin.find({
+        let nearbyBins = await SmartBin.find({
           assignedTo: pickup.requestedBy._id,
-          status: 'active',
           location: {
             $near: {
               $geometry: {
@@ -686,29 +685,38 @@ export const completePickup = async (req, res) => {
           }
         });
 
-        // Update fill level of nearby bins to 0 (emptied)
-        for (const bin of nearbyBins) {
-          bin.currentLevel = 0;
-          bin.lastEmptied = new Date();
-          await bin.save();
-        }
-
         // If no bins found nearby, try to find by assignedTo
         if (nearbyBins.length === 0) {
-          const userBins = await SmartBin.find({
+          nearbyBins = await SmartBin.find({
             assignedTo: pickup.requestedBy._id,
-            status: 'active'
+            status: { $in: ['active', 'maintenance'] }
           });
+        }
 
-          // Update all active bins for this user (they might have one bin)
-          for (const bin of userBins) {
+        // Update bins based on status
+        for (const bin of nearbyBins) {
+          if (binStatus === 'collected' || binStatus === 'empty') {
+            // Reset fill level to 0 (emptied)
             bin.currentLevel = 0;
             bin.lastEmptied = new Date();
-            await bin.save();
+          } else if (binStatus === 'damaged') {
+            // Mark bin as damaged and needing maintenance
+            bin.status = 'maintenance';
+            bin.currentLevel = 0; // Reset level
+            bin.lastEmptied = new Date();
+            
+            // Add to maintenance history
+            bin.maintenanceHistory.push({
+              date: new Date(),
+              type: 'damage-reported',
+              description: `Bin reported damaged by collector ${pickup.assignedCollector.firstName} ${pickup.assignedCollector.lastName} during waste collection. Replacement needed urgently.`,
+              performedBy: pickup.assignedCollector._id
+            });
           }
+          await bin.save();
         }
       } catch (binError) {
-        console.error('Error updating bin levels:', binError);
+        console.error('Error updating bin status:', binError);
         // Don't fail the pickup completion if bin update fails
       }
     }
