@@ -108,6 +108,8 @@ export const approveAndAssignRequest = async (req, res) => {
                    new Date()
     });
 
+    console.log('approveAndAssignRequest: created delivery id=', delivery._id);
+
     // Store delivery info in request for later use
     request.deliveryId = delivery._id;
     await request.save();

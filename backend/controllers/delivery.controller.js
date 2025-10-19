@@ -49,7 +49,14 @@ export const updateDeliveryStatus = async (req, res) => {
         status: 'approved',
         deliveryId: delivery._id 
       });
-      
+
+      console.log('updateDeliveryStatus: delivery._id=', delivery._id);
+      console.log('updateDeliveryStatus: binRequest found=', !!binRequest);
+
+      if (!binRequest) {
+        console.log('No bin request found for delivery:', delivery._id, 'resident:', delivery.resident._id);
+      }
+
       if (binRequest) {
         // Create the actual bin now that delivery is completed
         const validBinTypes = ['general', 'recyclable', 'organic', 'hazardous'];
@@ -114,9 +121,21 @@ export const confirmReceipt = async (req, res) => {
     delivery.confirmedAt = new Date();
     await delivery.save();
 
-    delivery.bin.status = 'active';
-    delivery.bin.activationDate = new Date();
-    await delivery.bin.save();
+    // If a bin document is linked, update its status. otherwise skip.
+    if (delivery.bin) {
+      try {
+        const binDoc = await SmartBin.findById(delivery.bin);
+        if (binDoc) {
+          binDoc.status = 'active';
+          binDoc.activationDate = new Date();
+          await binDoc.save();
+        } else {
+          console.log('confirmReceipt: linked bin not found for delivery', delivery._id);
+        }
+      } catch (err) {
+        console.error('Error updating linked bin on confirmReceipt:', err.message);
+      }
+    }
 
     res.status(200).json({ success: true, data: delivery });
   } catch (error) {

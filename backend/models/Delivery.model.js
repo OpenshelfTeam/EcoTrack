@@ -9,7 +9,7 @@ const deliverySchema = new mongoose.Schema({
   bin: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SmartBin',
-    required: true
+    required: false
   },
   resident: {
     type: mongoose.Schema.Types.ObjectId,
