@@ -1,6 +1,7 @@
 import PickupRequest from '../models/PickupRequest.model.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import SmartBin from '../models/SmartBin.model.js';
 
 // @desc    Create new pickup request
 // @route   POST /api/pickups
@@ -663,6 +664,62 @@ export const completePickup = async (req, res) => {
     });
 
     await pickup.save();
+
+    // Update bin based on collection status
+    if (binStatus === 'collected' || binStatus === 'empty' || binStatus === 'damaged') {
+      try {
+        // Find bins at the pickup location (within 50 meters)
+        const pickupLng = pickup.pickupLocation.coordinates[0];
+        const pickupLat = pickup.pickupLocation.coordinates[1];
+        
+        let nearbyBins = await SmartBin.find({
+          assignedTo: pickup.requestedBy._id,
+          location: {
+            $near: {
+              $geometry: {
+                type: 'Point',
+                coordinates: [pickupLng, pickupLat]
+              },
+              $maxDistance: 50 // 50 meters radius
+            }
+          }
+        });
+
+        // If no bins found nearby, try to find by assignedTo
+        if (nearbyBins.length === 0) {
+          nearbyBins = await SmartBin.find({
+            assignedTo: pickup.requestedBy._id,
+            status: { $in: ['active', 'maintenance'] }
+          });
+        }
+
+        // Update bins based on status
+        for (const bin of nearbyBins) {
+          if (binStatus === 'collected' || binStatus === 'empty') {
+            // Reset fill level to 0 (emptied)
+            bin.currentLevel = 0;
+            bin.lastEmptied = new Date();
+          } else if (binStatus === 'damaged') {
+            // Mark bin as damaged and needing maintenance
+            bin.status = 'maintenance';
+            bin.currentLevel = 0; // Reset level
+            bin.lastEmptied = new Date();
+            
+            // Add to maintenance history
+            bin.maintenanceHistory.push({
+              date: new Date(),
+              type: 'damage-reported',
+              description: `Bin reported damaged by collector ${pickup.assignedCollector.firstName} ${pickup.assignedCollector.lastName} during waste collection. Replacement needed urgently.`,
+              performedBy: pickup.assignedCollector._id
+            });
+          }
+          await bin.save();
+        }
+      } catch (binError) {
+        console.error('Error updating bin status:', binError);
+        // Don't fail the pickup completion if bin update fails
+      }
+    }
 
     // Notify resident
     await Notification.create({

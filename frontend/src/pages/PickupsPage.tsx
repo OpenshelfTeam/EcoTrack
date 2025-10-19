@@ -7,8 +7,9 @@ import {
 } from 'lucide-react';
 import { pickupService } from '../services/pickup.service';
 import { userService } from '../services/user.service';
+import { binService } from '../services/bin.service';
 import { useAuth } from '../contexts/AuthContext';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMapEvents, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -60,6 +61,7 @@ export const PickupsPage = () => {
   const [selectedPickup, setSelectedPickup] = useState<PickupRequest | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showBinSelector, setShowBinSelector] = useState(false);
   const [tempMapLocation, setTempMapLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupCoordinates, setPickupCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
@@ -77,6 +79,13 @@ export const PickupsPage = () => {
       status: filterStatus !== 'all' ? filterStatus : undefined,
       wasteType: filterType !== 'all' ? filterType : undefined,
     }),
+  });
+
+  // Fetch user's bins (for residents only)
+  const { data: userBinsData } = useQuery({
+    queryKey: ['userBins'],
+    queryFn: () => binService.getAllBins({ assignedTo: user?._id }),
+    enabled: user?.role === 'resident' && showBinSelector,
   });
 
   // Create pickup mutation
@@ -345,6 +354,36 @@ export const PickupsPage = () => {
       setShowMapPicker(false);
       setTempMapLocation(null);
     }
+  };
+
+  const handleBinSelect = async (bin: any) => {
+    // Set coordinates from bin location
+    const lat = bin.location.coordinates[1];
+    const lng = bin.location.coordinates[0];
+    setPickupCoordinates({ lat, lng });
+
+    // Use bin's address or reverse geocode
+    if (bin.location.address) {
+      setNewRequest({ ...newRequest, address: bin.location.address });
+    } else {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+        );
+        const data = await response.json();
+        if (data.display_name) {
+          setNewRequest({ ...newRequest, address: data.display_name });
+        }
+      } catch (error) {
+        console.error('Error getting address:', error);
+        setNewRequest({ 
+          ...newRequest, 
+          address: `Bin Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}` 
+        });
+      }
+    }
+
+    setShowBinSelector(false);
   };
 
   const resetNewRequest = () => {
@@ -695,6 +734,17 @@ export const PickupsPage = () => {
                     className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                     placeholder="Full address including district"
                   />
+                  {user?.role === 'resident' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBinSelector(true)}
+                      className="px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center gap-2 whitespace-nowrap shadow-md hover:shadow-lg font-semibold"
+                      title="Select from my bins"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                      My Bins
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={getCurrentLocation}
@@ -1160,6 +1210,158 @@ export const PickupsPage = () => {
                     Assign Collector
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bin Selector Modal */}
+      {showBinSelector && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden transform transition-all animate-fadeIn">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                    <Trash2 className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Select Bin Location</h2>
+                    <p className="text-emerald-50 text-sm mt-1">Choose which bin you want to request pickup for</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowBinSelector(false)}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 h-[600px] flex gap-6">
+              {/* Map */}
+              <div className="flex-1 rounded-2xl overflow-hidden shadow-lg">
+                <MapContainer
+                  center={userBinsData?.data?.[0]?.location?.coordinates 
+                    ? [userBinsData.data[0].location.coordinates[1], userBinsData.data[0].location.coordinates[0]]
+                    : [7.8731, 80.7718]} // Center of Sri Lanka
+                  zoom={8}
+                  style={{ height: '100%', width: '100%' }}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  />
+                  {userBinsData?.data?.map((bin: any) => {
+                    if (!bin.location?.coordinates) return null;
+                    const [lng, lat] = bin.location.coordinates;
+                    
+                    // Create custom icon based on bin type
+                    const binIcon = new L.Icon({
+                      iconUrl: bin.binType === 'recyclable' 
+                        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png'
+                        : bin.binType === 'organic'
+                        ? 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png'
+                        : 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                      iconSize: [25, 41],
+                      iconAnchor: [12, 41],
+                      popupAnchor: [1, -34],
+                      shadowSize: [41, 41]
+                    });
+
+                    return (
+                      <Marker 
+                        key={bin._id} 
+                        position={[lat, lng]}
+                        icon={binIcon}
+                        eventHandlers={{
+                          click: () => handleBinSelect(bin)
+                        }}
+                      >
+                        <Popup>
+                          <div className="p-2">
+                            <div className="font-bold text-lg mb-2">{bin.binId}</div>
+                            <div className="space-y-1 text-sm">
+                              <p><strong>Type:</strong> {bin.binType}</p>
+                              <p><strong>Status:</strong> {bin.status}</p>
+                              <p><strong>Fill Level:</strong> {bin.currentLevel}%</p>
+                              {bin.location.address && (
+                                <p><strong>Address:</strong> {bin.location.address}</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleBinSelect(bin)}
+                              className="mt-3 w-full px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors font-medium"
+                            >
+                              Select This Bin
+                            </button>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  })}
+                </MapContainer>
+              </div>
+
+              {/* Bins List */}
+              <div className="w-80 flex flex-col">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Your Bins</h3>
+                <div className="flex-1 overflow-y-auto space-y-3">
+                  {!userBinsData?.data || userBinsData.data.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Trash2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500 font-medium">No bins found</p>
+                      <p className="text-sm text-gray-400 mt-2">Request a bin to get started</p>
+                    </div>
+                  ) : (
+                    userBinsData.data.map((bin: any) => (
+                      <div
+                        key={bin._id}
+                        onClick={() => handleBinSelect(bin)}
+                        className="bg-white border-2 border-gray-200 rounded-xl p-4 hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Trash2 className="w-5 h-5 text-emerald-500" />
+                            <span className="font-bold text-gray-900">{bin.binId}</span>
+                          </div>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            bin.status === 'active' 
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {bin.status}
+                          </span>
+                        </div>
+                        <div className="space-y-1 text-sm text-gray-600">
+                          <p><strong>Type:</strong> {bin.binType}</p>
+                          <p><strong>Fill Level:</strong> {bin.currentLevel}%</p>
+                          {bin.location.address && (
+                            <p className="text-xs text-gray-500 mt-2 line-clamp-2">
+                              📍 {bin.location.address}
+                            </p>
+                          )}
+                        </div>
+                        <div className="mt-3 text-emerald-600 font-medium text-sm group-hover:text-emerald-700 flex items-center gap-1">
+                          <MapPin className="w-4 h-4" />
+                          Click to select
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 px-8 py-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowBinSelector(false)}
+                className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-colors font-medium"
+              >
+                Close
               </button>
             </div>
           </div>
