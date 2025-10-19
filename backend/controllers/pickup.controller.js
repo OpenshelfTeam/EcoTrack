@@ -1,6 +1,7 @@
 import PickupRequest from '../models/PickupRequest.model.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import SmartBin from '../models/SmartBin.model.js';
 
 // @desc    Create new pickup request
 // @route   POST /api/pickups
@@ -663,6 +664,54 @@ export const completePickup = async (req, res) => {
     });
 
     await pickup.save();
+
+    // Update bin fill level if waste was collected successfully
+    if (binStatus === 'collected') {
+      try {
+        // Find bins at the pickup location (within 50 meters)
+        const pickupLng = pickup.pickupLocation.coordinates[0];
+        const pickupLat = pickup.pickupLocation.coordinates[1];
+        
+        const nearbyBins = await SmartBin.find({
+          assignedTo: pickup.requestedBy._id,
+          status: 'active',
+          location: {
+            $near: {
+              $geometry: {
+                type: 'Point',
+                coordinates: [pickupLng, pickupLat]
+              },
+              $maxDistance: 50 // 50 meters radius
+            }
+          }
+        });
+
+        // Update fill level of nearby bins to 0 (emptied)
+        for (const bin of nearbyBins) {
+          bin.currentLevel = 0;
+          bin.lastEmptied = new Date();
+          await bin.save();
+        }
+
+        // If no bins found nearby, try to find by assignedTo
+        if (nearbyBins.length === 0) {
+          const userBins = await SmartBin.find({
+            assignedTo: pickup.requestedBy._id,
+            status: 'active'
+          });
+
+          // Update all active bins for this user (they might have one bin)
+          for (const bin of userBins) {
+            bin.currentLevel = 0;
+            bin.lastEmptied = new Date();
+            await bin.save();
+          }
+        }
+      } catch (binError) {
+        console.error('Error updating bin levels:', binError);
+        // Don't fail the pickup completion if bin update fails
+      }
+    }
 
     // Notify resident
     await Notification.create({
