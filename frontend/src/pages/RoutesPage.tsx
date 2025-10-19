@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { routeService, type Route } from '../services/route.service';
 import { collectionService } from '../services/collection.service';
+import { pickupService } from '../services/pickup.service';
 import { useAuth } from '../contexts/AuthContext';
 
 // Map bounds setter component - keeps Sri Lanka view with route visible
@@ -84,6 +85,103 @@ const createBinIcon = (isCollected: boolean, isCurrent: boolean, index: number) 
   });
 };
 
+// Create custom pickup icons
+const createPickupIcon = (status: string) => {
+  let color = '#f97316'; // Orange for pickups
+  let label = '📦';
+  
+  if (status === 'completed') {
+    color = '#10b981'; // Green
+    label = '✓';
+  } else if (status === 'in-progress') {
+    color = '#eab308'; // Yellow
+    label = '🚚';
+  }
+  
+  return L.divIcon({
+    className: 'custom-pickup-marker',
+    html: `
+      <div style="
+        background-color: ${color};
+        width: 44px;
+        height: 44px;
+        border-radius: 50% 50% 50% 0;
+        border: 3px solid white;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: rotate(-45deg);
+        position: relative;
+      ">
+        <span style="
+          font-size: 18px;
+          transform: rotate(45deg);
+        ">${label}</span>
+      </div>
+    `,
+    iconSize: [44, 44],
+    iconAnchor: [12, 44],
+    popupAnchor: [10, -44]
+  });
+};
+
+// Create start location icon (green circle with flag)
+const createStartIcon = () => {
+  return L.divIcon({
+    className: 'custom-start-marker',
+    html: `
+      <div style="
+        background-color: #10b981;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 4px solid white;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      ">
+        <span style="
+          font-size: 24px;
+        ">🚩</span>
+      </div>
+    `,
+    iconSize: [48, 48],
+    iconAnchor: [24, 24],
+    popupAnchor: [0, -24]
+  });
+};
+
+// Create end location icon (red circle with pin)
+const createEndIcon = () => {
+  return L.divIcon({
+    className: 'custom-end-marker',
+    html: `
+      <div style="
+        background-color: #ef4444;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 4px solid white;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      ">
+        <span style="
+          font-size: 24px;
+        ">📍</span>
+      </div>
+    `,
+    iconSize: [48, 48],
+    iconAnchor: [24, 24],
+    popupAnchor: [0, -24]
+  });
+};
+
 export const RoutesPage = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -126,6 +224,13 @@ export const RoutesPage = () => {
       area: filterArea !== 'all' ? filterArea : undefined,
       search: searchTerm || undefined
     })
+  });
+
+  // Fetch assigned pickups for collectors to show on map
+  const { data: pickupsData } = useQuery({
+    queryKey: ['assigned-pickups-map'],
+    queryFn: () => pickupService.getAllPickups(),
+    enabled: user?.role === 'collector' && viewMode === 'map', // Only fetch for collectors in map view
   });
 
   // Fetch route statistics
@@ -921,6 +1026,149 @@ export const RoutesPage = () => {
                               </Marker>
                             );
                           })}
+                          
+                          {/* Start and End Location markers for pickup routes */}
+                          {activeRoute.startLocation?.coordinates && (
+                            <Marker
+                              position={[
+                                activeRoute.startLocation.coordinates[1],
+                                activeRoute.startLocation.coordinates[0]
+                              ]}
+                              icon={createStartIcon()}
+                            >
+                              <Popup>
+                                <div className="text-sm">
+                                  <p className="font-bold text-emerald-600 mb-1">
+                                    🚩 Start Location
+                                  </p>
+                                  <p className="text-gray-900 font-medium">
+                                    {activeRoute.startLocation.address || 'Your Location'}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-2">
+                                    This is where the pickup route starts
+                                  </p>
+                                </div>
+                              </Popup>
+                            </Marker>
+                          )}
+                          
+                          {activeRoute.endLocation?.coordinates && (
+                            <Marker
+                              position={[
+                                activeRoute.endLocation.coordinates[1],
+                                activeRoute.endLocation.coordinates[0]
+                              ]}
+                              icon={createEndIcon()}
+                            >
+                              <Popup>
+                                <div className="text-sm">
+                                  <p className="font-bold text-red-600 mb-1">
+                                    📍 Pickup Location
+                                  </p>
+                                  <p className="text-gray-900 font-medium mb-2">
+                                    {activeRoute.endLocation.address}
+                                  </p>
+                                  <button
+                                    onClick={() => {
+                                      const [lng, lat] = activeRoute.endLocation!.coordinates;
+                                      const address = activeRoute.endLocation!.address || '';
+                                      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                                      window.open(googleMapsUrl, '_blank');
+                                    }}
+                                    className="w-full px-3 py-2 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 flex items-center justify-center gap-1"
+                                  >
+                                    <Navigation className="w-3 h-3" />
+                                    Navigate Here
+                                  </button>
+                                </div>
+                              </Popup>
+                            </Marker>
+                          )}
+                          
+                          {/* Route line from start to end for pickup routes */}
+                          {activeRoute.startLocation?.coordinates && activeRoute.endLocation?.coordinates && (
+                            <Polyline
+                              positions={[
+                                [activeRoute.startLocation.coordinates[1], activeRoute.startLocation.coordinates[0]],
+                                [activeRoute.endLocation.coordinates[1], activeRoute.endLocation.coordinates[0]]
+                              ]}
+                              color="#8b5cf6"
+                              weight={4}
+                              opacity={0.7}
+                              dashArray="10, 10"
+                            />
+                          )}
+                          
+                          {/* Pickup Request markers - for collectors */}
+                          {user?.role === 'collector' && pickupsData?.data && pickupsData.data.map((pickup: any) => {
+                            if (!pickup.pickupLocation?.coordinates || !Array.isArray(pickup.pickupLocation.coordinates)) return null;
+                            
+                            return (
+                              <Marker
+                                key={`pickup-${pickup._id}`}
+                                position={[pickup.pickupLocation.coordinates[1], pickup.pickupLocation.coordinates[0]]}
+                                icon={createPickupIcon(pickup.status)}
+                              >
+                                <Popup>
+                                  <div className="text-sm">
+                                    <p className="font-bold text-gray-900 mb-1">
+                                      🚚 Pickup Request
+                                    </p>
+                                    <p className="text-xs text-gray-500 mb-2">{pickup.requestId}</p>
+                                    <p className="text-gray-900 font-medium mb-2">
+                                      {pickup.pickupLocation.address}
+                                    </p>
+                                    <div className="space-y-1 mb-2">
+                                      <p className="text-gray-600">
+                                        <span className="font-medium">Type:</span> {pickup.wasteType}
+                                      </p>
+                                      <p className="text-gray-600">
+                                        <span className="font-medium">Status:</span> {pickup.status}
+                                      </p>
+                                      <p className="text-gray-600">
+                                        <span className="font-medium">Date:</span> {new Date(pickup.scheduledDate || pickup.preferredDate).toLocaleDateString()}
+                                      </p>
+                                      <p className="text-gray-600">
+                                        <span className="font-medium">Time:</span> {pickup.timeSlot}
+                                      </p>
+                                      <p className="text-gray-600">
+                                        <span className="font-medium">Resident:</span> {pickup.requestedBy?.firstName} {pickup.requestedBy?.lastName}
+                                      </p>
+                                    </div>
+                                    {(pickup.status === 'scheduled' || pickup.status === 'in-progress') && (
+                                      <button
+                                        onClick={() => {
+                                          const [lng, lat] = pickup.pickupLocation.coordinates;
+                                          const address = pickup.pickupLocation.address || '';
+                                          const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                                          window.open(googleMapsUrl, '_blank');
+                                        }}
+                                        className="mt-2 w-full px-3 py-2 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 flex items-center justify-center gap-1"
+                                      >
+                                        <Navigation className="w-3 h-3" />
+                                        Navigate to Location
+                                      </button>
+                                    )}
+                                    {pickup.status === 'scheduled' && (
+                                      <div className="mt-2 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs text-center">
+                                        Scheduled for collection
+                                      </div>
+                                    )}
+                                    {pickup.status === 'in-progress' && (
+                                      <div className="mt-2 px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs text-center">
+                                        Collection in progress
+                                      </div>
+                                    )}
+                                    {pickup.status === 'completed' && (
+                                      <div className="mt-2 px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs text-center">
+                                        ✓ Completed
+                                      </div>
+                                    )}
+                                  </div>
+                                </Popup>
+                              </Marker>
+                            );
+                          })}
                         </MapContainer>
                       ) : (
                         <div className="h-full flex items-center justify-center bg-gray-100">
@@ -932,7 +1180,7 @@ export const RoutesPage = () => {
                     {/* Map Legend */}
                     <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
                       <h4 className="text-sm font-semibold text-gray-700 mb-3">Map Legend</h4>
-                      <div className="grid grid-cols-3 gap-4 text-xs">
+                      <div className="grid grid-cols-3 gap-4 text-xs mb-3">
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-yellow-500 border-2 border-white shadow flex items-center justify-center text-white font-bold">●</div>
                           <span className="text-gray-600">Current Bin</span>
@@ -946,6 +1194,22 @@ export const RoutesPage = () => {
                           <span className="text-gray-600">Collected</span>
                         </div>
                       </div>
+                      {user?.role === 'collector' && (
+                        <div className="grid grid-cols-3 gap-4 text-xs pt-3 border-t border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-orange-500 border-2 border-white shadow flex items-center justify-center text-[10px]">📦</div>
+                            <span className="text-gray-600">Scheduled Pickup</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-yellow-500 border-2 border-white shadow flex items-center justify-center text-[10px]">🚚</div>
+                            <span className="text-gray-600">Pickup In Progress</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500 border-2 border-white shadow flex items-center justify-center text-white font-bold">✓</div>
+                            <span className="text-gray-600">Pickup Complete</span>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-3 pt-3 border-t border-gray-200">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 border-t-4 border-dashed border-blue-500"></div>

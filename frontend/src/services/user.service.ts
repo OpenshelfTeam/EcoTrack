@@ -40,6 +40,11 @@ export const userService = {
     return response.data;
   },
 
+  async updateProfile(id: string, data: any) {
+    const response = await api.put(`/users/${id}`, data);
+    return response.data;
+  },
+
   async deleteUser(id: string) {
     const response = await api.delete(`/users/${id}`);
     return response.data;

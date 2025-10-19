@@ -25,9 +25,9 @@ export const getSmartBins = async (req, res) => {
     // Build filter query
     const filter = {};
 
-    // Role-based filtering: Residents only see their own bins
+    // Role-based filtering: Residents only see bins assigned to them
     if (req.user.role === 'resident') {
-      filter.createdBy = req.user.id;
+      filter.assignedTo = req.user.id;
     }
     // Collectors, Operators, Admins, and Authorities see all bins
     // (no additional filter needed)
@@ -139,7 +139,7 @@ export const getSmartBin = async (req, res) => {
 
 // @desc    Create smart bin
 // @route   POST /api/smart-bins
-// @access  Private (Resident, Collector, Operator, Admin)
+// @access  Private (Operator, Admin, Authority only)
 export const createSmartBin = async (req, res) => {
   try {
     // Automatically set createdBy to the current user
@@ -250,23 +250,45 @@ export const createSmartBin = async (req, res) => {
 
 // @desc    Update smart bin
 // @route   PUT /api/smart-bins/:id
-// @access  Private (Operator, Collector, Admin)
+// @access  Private (Resident for their own bins, Operator, Collector, Admin for all)
 export const updateSmartBin = async (req, res) => {
   try {
-    const bin = await SmartBin.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
+    const bin = await SmartBin.findById(req.params.id);
 
     if (!bin) {
       return res.status(404).json({
         success: false,
         message: 'Smart bin not found'
       });
+    }
+
+    // If user is a resident, only allow updating specific fields and only their own bins
+    if (req.user.role === 'resident') {
+      // Check if bin belongs to this resident
+      if (!bin.assignedTo || bin.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only update your own bins'
+        });
+      }
+
+      // Residents can only update these fields
+      const allowedFields = ['currentLevel', 'status', 'lastEmptied'];
+      const updates = {};
+      
+      allowedFields.forEach(field => {
+        if (req.body[field] !== undefined) {
+          updates[field] = req.body[field];
+        }
+      });
+
+      // Update the bin with allowed fields only
+      Object.assign(bin, updates);
+      await bin.save();
+    } else {
+      // Operators, admins, authorities can update all fields
+      Object.assign(bin, req.body);
+      await bin.save();
     }
 
     res.status(200).json({

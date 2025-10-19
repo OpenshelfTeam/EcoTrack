@@ -28,11 +28,11 @@ router.get('/needs-collection', authorize('collector', 'operator', 'admin'), get
 // Main CRUD routes
 router.route('/')
   .get(getSmartBins)
-  .post(authorize('resident', 'collector', 'operator', 'admin'), createSmartBin);
+  .post(authorize('operator', 'admin', 'authority'), createSmartBin);
 
 router.route('/:id')
   .get(getSmartBin)
-  .put(authorize('resident', 'collector', 'operator', 'admin'), updateSmartBin)
+  .put(authorize('resident', 'operator', 'admin', 'authority'), updateSmartBin)
   .delete(authorize('operator', 'admin'), deleteSmartBin);
 
 // Action routes

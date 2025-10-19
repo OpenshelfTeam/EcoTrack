@@ -1,5 +1,6 @@
 import Ticket from "../models/Ticket.model.js";
 import User from "../models/User.model.js";
+import Notification from "../models/Notification.model.js";
 
 // @desc    Get all tickets with advanced filtering
 // @route   GET /api/tickets
@@ -160,14 +161,14 @@ export const createTicket = async (req, res) => {
   try {
     // Generate unique ticket number
     const generateTicketNumber = async () => {
-      const prefix = 'TKT';
+      const prefix = "TKT";
       const date = new Date();
       const year = date.getFullYear().toString().slice(-2);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      
+      const month = (date.getMonth() + 1).toString().padStart(2, "0");
+
       // Find the last ticket number for today
       const lastTicket = await Ticket.findOne({
-        ticketNumber: new RegExp(`^${prefix}${year}${month}`)
+        ticketNumber: new RegExp(`^${prefix}${year}${month}`),
       }).sort({ ticketNumber: -1 });
 
       let sequence = 1;
@@ -176,7 +177,7 @@ export const createTicket = async (req, res) => {
         sequence = lastSequence + 1;
       }
 
-      return `${prefix}${year}${month}${sequence.toString().padStart(4, '0')}`;
+      return `${prefix}${year}${month}${sequence.toString().padStart(4, "0")}`;
     };
 
     const ticketNumber = await generateTicketNumber();
@@ -197,6 +198,57 @@ export const createTicket = async (req, res) => {
     const ticket = await Ticket.create(ticketData);
     await ticket.populate("reporter", "firstName lastName email phone");
 
+    // Send notification to resident (ticket confirmation)
+    await Notification.create({
+      recipient: req.user._id,
+      type: "ticket-created",
+      title: "Ticket Submitted Successfully",
+      message: `Your ticket ${ticketNumber} has been submitted successfully. Our team will review it shortly.`,
+      priority: "medium",
+      channel: ["in-app", "email"],
+      status: "sent",
+      relatedEntity: {
+        entityType: "ticket",
+        entityId: ticket._id,
+      },
+      metadata: {
+        actionUrl: `/tickets`,
+        ticketNumber: ticketNumber,
+        category: ticket.category,
+        priority: ticket.priority,
+      },
+    });
+
+    // Send notification to all authorities (new ticket alert)
+    const authorities = await User.find({
+      role: { $in: ["authority", "admin"] },
+    }).select("_id");
+
+    const authorityNotifications = authorities.map((authority) => ({
+      recipient: authority._id,
+      type: "ticket-created",
+      title: "New Ticket Submitted",
+      message: `New ${ticket.priority} priority ticket submitted by ${ticket.reporter.firstName} ${ticket.reporter.lastName}. Category: ${ticket.category}`,
+      priority: ticket.priority === "urgent" ? "high" : "medium",
+      channel: ["in-app", "email"],
+      status: "sent",
+      relatedEntity: {
+        entityType: "ticket",
+        entityId: ticket._id,
+      },
+      metadata: {
+        actionUrl: `/tickets`,
+        ticketNumber: ticketNumber,
+        category: ticket.category,
+        priority: ticket.priority,
+        reporterName: `${ticket.reporter.firstName} ${ticket.reporter.lastName}`,
+      },
+    }));
+
+    if (authorityNotifications.length > 0) {
+      await Notification.insertMany(authorityNotifications);
+    }
+
     res.status(201).json({
       success: true,
       data: ticket,
@@ -207,7 +259,7 @@ export const createTicket = async (req, res) => {
       message: error.message,
     });
   }
-};;
+};
 
 // @desc    Update ticket
 // @route   PUT /api/tickets/:id
@@ -352,6 +404,47 @@ export const assignTicket = async (req, res) => {
     await ticket.save();
     await ticket.populate("reporter assignedTo");
 
+    // Send notification to assigned user
+    await Notification.create({
+      recipient: userId,
+      type: "ticket-assigned",
+      title: "New Ticket Assigned",
+      message: `You have been assigned ticket ${ticket.ticketNumber}. Priority: ${ticket.priority}`,
+      priority: ticket.priority === "urgent" ? "high" : "medium",
+      channel: ["in-app", "email"],
+      status: "sent",
+      relatedEntity: {
+        entityType: "ticket",
+        entityId: ticket._id,
+      },
+      metadata: {
+        actionUrl: `/tickets`,
+        ticketNumber: ticket.ticketNumber,
+        category: ticket.category,
+        priority: ticket.priority,
+      },
+    });
+
+    // Send notification to reporter (resident) that ticket was assigned
+    await Notification.create({
+      recipient: ticket.reporter,
+      type: "ticket-update",
+      title: "Ticket Assigned",
+      message: `Your ticket ${ticket.ticketNumber} has been assigned to ${user.firstName} ${user.lastName} and is now in progress.`,
+      priority: "medium",
+      channel: ["in-app", "email"],
+      status: "sent",
+      relatedEntity: {
+        entityType: "ticket",
+        entityId: ticket._id,
+      },
+      metadata: {
+        actionUrl: `/tickets`,
+        ticketNumber: ticket.ticketNumber,
+        assignedTo: `${user.firstName} ${user.lastName}`,
+      },
+    });
+
     res.status(200).json({
       success: true,
       data: ticket,
@@ -378,7 +471,7 @@ export const addComment = async (req, res) => {
         success: false,
         message: "Ticket not found",
       });
-    // Residents can only delete their own tickets
+      // Residents can only delete their own tickets
     }
 
     // Check if user has access to this ticket
@@ -446,6 +539,26 @@ export const resolveTicket = async (req, res) => {
 
     await ticket.save();
     await ticket.populate("reporter assignedTo resolution.resolvedBy");
+
+    // Send notification to reporter (resident) that ticket was resolved
+    await Notification.create({
+      recipient: ticket.reporter._id,
+      type: "ticket-resolved",
+      title: "Ticket Resolved",
+      message: `Your ticket ${ticket.ticketNumber} has been resolved. ${resolution}`,
+      priority: "medium",
+      channel: ["in-app", "email"],
+      status: "sent",
+      relatedEntity: {
+        entityType: "ticket",
+        entityId: ticket._id,
+      },
+      metadata: {
+        actionUrl: `/tickets`,
+        ticketNumber: ticket.ticketNumber,
+        resolution: resolution,
+      },
+    });
 
     res.status(200).json({
       success: true,

@@ -19,14 +19,32 @@ const binRequestSchema = new mongoose.Schema({
   preferredDeliveryDate: {
     type: Date
   },
+  // Delivery address fields
+  address: {
+    type: String,
+    required: false
+  },
+  street: String,
+  city: String,
+  province: String,
+  postalCode: String,
+  coordinates: {
+    lat: Number,
+    lng: Number
+  },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'rejected', 'cancelled'],
+    enum: ['pending', 'approved', 'rejected', 'cancelled', 'delivered'],
     default: 'pending'
   },
   assignedBin: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SmartBin',
+    default: null
+  },
+  deliveryId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Delivery',
     default: null
   },
   paymentVerified: {
