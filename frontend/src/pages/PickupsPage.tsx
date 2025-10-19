@@ -222,6 +222,12 @@ export const PickupsPage = () => {
   };
 
   const handleRequestPickup = () => {
+    // Validate that location has been captured
+    if (!pickupCoordinates) {
+      alert('Please select your pickup location using GPS or Map before submitting the request.');
+      return;
+    }
+
     createPickupMutation.mutate({
       wasteType: newRequest.wasteType,
       description: newRequest.notes || 'Pickup request',
@@ -231,8 +237,8 @@ export const PickupsPage = () => {
       },
       pickupLocation: {
         type: 'Point',
-        coordinates: [79.8612, 6.9271], // Default Colombo coordinates
-        address: newRequest.address || '123 Main St, Apt 4B'
+        coordinates: [pickupCoordinates.lng, pickupCoordinates.lat], // [longitude, latitude] for GeoJSON
+        address: newRequest.address || 'Pickup location'
       },
       preferredDate: newRequest.preferredDate,
       timeSlot: newRequest.preferredTime,
@@ -343,7 +349,7 @@ export const PickupsPage = () => {
 
   const resetNewRequest = () => {
     setNewRequest({
-      address: '123 Main St, Apt 4B',
+      address: '',
       wasteType: 'recyclable',
       preferredDate: '',
       preferredTime: 'morning',
