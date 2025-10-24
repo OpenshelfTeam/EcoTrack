@@ -6,3 +6,4 @@ uploads/*
 !uploads/.gitkeep
 dist/
 build/
+coverage/
