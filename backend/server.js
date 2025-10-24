@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
+import mongoose from 'mongoose';
 
 // Import routes
 import authRoutes from './routes/auth.routes.js';
@@ -25,8 +26,10 @@ dotenv.config();
 // Initialize Express app
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB only if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+  connectDB();
+}
 
 // Middleware
 app.use(cors({
@@ -54,11 +57,66 @@ app.use('/api/subscriptions', subscriptionRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {
+  const dbState = mongoose.connection && mongoose.connection.readyState;
+  const dbHost = mongoose.connection && mongoose.connection.host;
+
   res.status(200).json({ 
     status: 'OK', 
     message: 'EcoTrack API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: process.uptime(),
+    nodeVersion: process.version,
+    db: {
+      readyState: dbState,
+      host: dbHost || null
+    },
+    checkUrl: '/api/check'
   });
+});
+
+// Route checker
+app.get('/api/check', (req, res) => {
+  const { path } = req.query || {};
+  
+  const routes = [];
+  if (app && app._router && Array.isArray(app._router.stack)) {
+    app._router.stack.forEach((layer) => {
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods || {}).map(m => m.toUpperCase());
+        routes.push({ path: layer.route.path, methods });
+      }
+      
+      if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        layer.handle.stack.forEach((nested) => {
+          if (nested.route && nested.route.path) {
+            const methods = Object.keys(nested.route.methods || {}).map(m => m.toUpperCase());
+            routes.push({ path: nested.route.path, methods });
+          }
+        });
+      }
+    });
+  }
+  
+  const info = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: process.uptime(),
+    nodeVersion: process.version,
+    dbReadyState: mongoose.connection && mongoose.connection.readyState
+  };
+  
+  if (path) {
+    const requested = String(path);
+    const matches = routes.filter(r => r.path === requested || (Array.isArray(r.path) && r.path.includes(requested)));
+    info.requestedPath = requested;
+    info.exists = matches.length > 0;
+    info.matches = matches;
+  } else {
+    info.availableRoutes = routes.slice(0, 200);
+    info.totalRoutes = routes.length;
+  }
+  
+  res.status(200).json(info);
 });
 
 // Error handling middleware
@@ -79,9 +137,14 @@ app.use((req, res) => {
   });
 });
 
-// Start server
+// Start server only if not in test mode
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
+
+// Export app for testing
+export default app;
