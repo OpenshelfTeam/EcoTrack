@@ -23,11 +23,13 @@ const mockUserModel = {
 
 const mockRouteModel = {
   find: jest.fn(),
+  findById: jest.fn(),
   create: jest.fn()
 };
 
 const mockNotificationModel = {
-  create: jest.fn()
+  create: jest.fn(),
+  insertMany: jest.fn()
 };
 
 // Setup mocks
@@ -352,6 +354,80 @@ describe('Collection Controller Comprehensive Tests', () => {
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
+    test('should update all fields when provided', async () => {
+      mockReq.params.id = 'col123';
+      mockReq.body = { 
+        wasteWeight: 30,
+        wasteType: 'organic',
+        binLevelAfter: 15,
+        status: 'completed',
+        notes: 'All good',
+        exception: { reason: 'Damaged lid' }
+      };
+
+      const record = {
+        _id: 'col123',
+        collector: 'user123',
+        wasteWeight: 20,
+        wasteType: 'general',
+        binLevelAfter: 0,
+        status: 'pending',
+        notes: '',
+        exception: {},
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockCollectionRecordModel.findById
+        .mockResolvedValueOnce(record)
+        .mockReturnValueOnce({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockReturnValue({
+                populate: jest.fn().mockResolvedValue({
+                  _id: 'col123',
+                  ...mockReq.body
+                })
+              })
+            })
+          })
+        });
+
+      await updateCollectionRecord(mockReq, mockRes);
+
+      expect(record.wasteWeight).toBe(30);
+      expect(record.wasteType).toBe('organic');
+      expect(record.binLevelAfter).toBe(15);
+      expect(record.status).toBe('completed');
+      expect(record.notes).toBe('All good');
+      expect(record.save).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ 
+          success: true,
+          message: 'Collection record updated'
+        })
+      );
+    });
+
+    test('should deny unauthorized collector from updating', async () => {
+      mockReq.params.id = 'col123';
+      mockReq.body = { status: 'completed' };
+      mockReq.user.role = 'collector';
+      mockReq.user._id = 'different-user';
+
+      const record = {
+        _id: 'col123',
+        collector: 'user123',
+        save: jest.fn()
+      };
+
+      mockCollectionRecordModel.findById.mockResolvedValue(record);
+
+      await updateCollectionRecord(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(403);
+      expect(record.save).not.toHaveBeenCalled();
+    });
+
     test('should return 404 for non-existent record', async () => {
       mockReq.params.id = 'nonexistent';
       mockReq.body = { status: 'completed' };
@@ -442,6 +518,78 @@ describe('Collection Controller Comprehensive Tests', () => {
   });
 
   describe('getCollectionSchedule', () => {
+    test('should require start and end dates', async () => {
+      mockReq.query = {};
+      
+      await getCollectionSchedule(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Start date and end date required'
+        })
+      );
+    });
+
+    test('should get collection schedule for collector', async () => {
+      mockReq.user.role = 'collector';
+      mockReq.user._id = 'collector123';
+      mockReq.query = { 
+        startDate: '2024-01-01',
+        endDate: '2024-01-31'
+      };
+
+      const routes = [
+        { _id: 'route1', scheduledDate: new Date('2024-01-15'), bins: [] },
+        { _id: 'route2', scheduledDate: new Date('2024-01-20'), bins: [] }
+      ];
+
+      mockRouteModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            sort: jest.fn().mockResolvedValue(routes)
+          })
+        })
+      });
+
+      await getCollectionSchedule(mockReq, mockRes);
+
+      expect(mockRouteModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignedCollector: 'collector123'
+        })
+      );
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    test('should get collection schedule for admin with collector filter', async () => {
+      mockReq.user.role = 'admin';
+      mockReq.query = { 
+        startDate: '2024-01-01',
+        endDate: '2024-01-31',
+        collector: 'specific-collector'
+      };
+
+      mockRouteModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            sort: jest.fn().mockResolvedValue([])
+          })
+        })
+      });
+
+      await getCollectionSchedule(mockReq, mockRes);
+
+      expect(mockRouteModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignedCollector: 'specific-collector'
+        })
+      );
+    });
+
     test('should get collection schedule', async () => {
       mockReq.user.role = 'collector';
       mockRouteModel.find.mockReturnValue({
@@ -534,6 +682,408 @@ describe('Collection Controller Comprehensive Tests', () => {
       await createRoute(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(500);
+    });
+  });
+
+  describe('Additional createCollectionRecord Coverage', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockReq.user = { _id: 'collector123', id: 'collector123', role: 'collector' };
+      mockReq.params = {};
+      mockReq.query = {};
+      mockReq.body = {};
+    });
+
+    test('should handle exception with no resident', async () => {
+      mockReq.body = {
+        route: 'route123',
+        bin: 'bin123',
+        status: 'exception',
+        exceptionReported: true,
+        exceptionReason: 'Damaged'
+      };
+
+      const route = {
+        _id: 'route123',
+        routeName: 'Test Route',
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      const bin = {
+        _id: 'bin123',
+        binId: 'BIN-001',
+        binType: 'general',
+        currentLevel: 50,
+        status: 'active',
+        location: {},
+        createdBy: null,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockRouteModel.findById.mockResolvedValue(route);
+      mockSmartBinModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(bin)
+      });
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123' });
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue({ _id: 'record123' })
+            })
+          })
+        })
+      });
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockResolvedValue([{ _id: 'admin1' }])
+      });
+      mockNotificationModel.insertMany = jest.fn().mockResolvedValue([]);
+
+      await createCollectionRecord(mockReq, mockRes);
+
+      expect(bin.status).toBe('maintenance-required');
+      expect(mockRes.status).toHaveBeenCalledWith(201);
+    });
+
+    test('should send empty notification when bin level was 0', async () => {
+      mockReq.body = {
+        route: 'route123',
+        bin: 'bin123',
+        status: 'empty'
+      };
+
+      const route = {
+        _id: 'route123',
+        routeName: 'Test Route',
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      const bin = {
+        _id: 'bin123',
+        binId: 'BIN-002',
+        binType: 'recyclable',
+        currentLevel: 0,
+        location: { address: '123 Main St' },
+        createdBy: { _id: 'resident123' },
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockRouteModel.findById.mockResolvedValue(route);
+      mockSmartBinModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(bin)
+      });
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123', status: 'empty' });
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue({ _id: 'record123' })
+            })
+          })
+        })
+      });
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockResolvedValue([{ _id: 'admin1' }])
+      });
+      mockNotificationModel.insertMany = jest.fn().mockResolvedValue([]);
+
+      await createCollectionRecord(mockReq, mockRes);
+
+      const notifications = mockNotificationModel.insertMany.mock.calls[0][0];
+      const residentNotif = notifications.find(n => n.recipient.toString() === 'resident123');
+      expect(residentNotif.title).toContain('Empty');
+      expect(mockRes.status).toHaveBeenCalledWith(201);
+    });
+
+    test('should send collected notification successfully', async () => {
+      mockReq.body = {
+        route: 'route123',
+        bin: 'bin123',
+        status: 'collected',
+        binLevelAfter: 10
+      };
+
+      const route = {
+        _id: 'route123',
+        routeName: 'Morning Route',
+        collectedBins: 5,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      const bin = {
+        _id: 'bin123',
+        binId: 'BIN-003',
+        binType: 'organic',
+        currentLevel: 80,
+        lastEmptied: null,
+        location: { address: '456 Oak St' },
+        createdBy: { _id: 'resident456' },
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockRouteModel.findById.mockResolvedValue(route);
+      mockSmartBinModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(bin)
+      });
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123', status: 'collected' });
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue({ _id: 'record123' })
+            })
+          })
+        })
+      });
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockResolvedValue([{ _id: 'admin1' }, { _id: 'admin2' }])
+      });
+      mockNotificationModel.insertMany = jest.fn().mockResolvedValue([]);
+
+      await createCollectionRecord(mockReq, mockRes);
+
+      expect(bin.currentLevel).toBe(10);
+      expect(bin.lastEmptied).toBeDefined();
+      expect(route.collectedBins).toBe(6);
+      const notifications = mockNotificationModel.insertMany.mock.calls[0][0];
+      expect(notifications.length).toBeGreaterThan(0);
+      const residentNotif = notifications.find(n => n.recipient.toString() === 'resident456');
+      expect(residentNotif.title).toContain('Collected');
+      expect(mockRes.status).toHaveBeenCalledWith(201);
+    });
+
+    test('should handle notification failure gracefully', async () => {
+      mockReq.body = {
+        route: 'route123',
+        bin: 'bin123',
+        status: 'collected'
+      };
+
+      const route = {
+        _id: 'route123',
+        collectedBins: 0,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      const bin = {
+        _id: 'bin123',
+        binType: 'general',
+        currentLevel: 60,
+        location: {},
+        createdBy: { _id: 'resident789' },
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockRouteModel.findById.mockResolvedValue(route);
+      mockSmartBinModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(bin)
+      });
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123' });
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue({ _id: 'record123' })
+            })
+          })
+        })
+      });
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockResolvedValue([{ _id: 'admin1' }])
+      });
+      mockNotificationModel.insertMany = jest.fn().mockRejectedValue(new Error('Notification failed'));
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await createCollectionRecord(mockReq, mockRes);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Failed to send notifications:',
+        expect.any(Error)
+      );
+      expect(mockRes.status).toHaveBeenCalledWith(201);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    test('should use default values for missing fields', async () => {
+      mockReq.body = {
+        route: 'route123',
+        bin: 'bin123'
+      };
+
+      const route = {
+        _id: 'route123',
+        collectedBins: 2,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      const bin = {
+        _id: 'bin123',
+        binType: 'recyclable',
+        currentLevel: 75,
+        location: { lat: 6.9, lng: 79.8 },
+        createdBy: null,
+        save: jest.fn().mockResolvedValue(true)
+      };
+
+      mockRouteModel.findById.mockResolvedValue(route);
+      mockSmartBinModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(bin)
+      });
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123' });
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue({ _id: 'record123' })
+            })
+          })
+        })
+      });
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockResolvedValue([])
+      });
+
+      await createCollectionRecord(mockReq, mockRes);
+
+      expect(mockCollectionRecordModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          wasteWeight: 0,
+          wasteType: 'recyclable',
+          binLevelBefore: 75,
+          binLevelAfter: 0,
+          status: 'collected'
+        })
+      );
+    });
+  });
+
+  describe('getCollectionRecord - Additional Coverage', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockReq.params = {};
+      mockReq.query = {};
+      mockReq.body = {};
+      mockReq.user = { _id: 'user123', id: 'user123', role: 'admin' };
+    });
+
+    test('should allow collector to view their own record', async () => {
+      mockReq.params.id = 'record123';
+      mockReq.user.role = 'collector';
+
+      const record = {
+        _id: 'record123',
+        collector: { _id: 'user123' },
+        resident: null
+      };
+
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue(record)
+            })
+          })
+        })
+      });
+
+      await getCollectionRecord(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    test('should allow resident to view their own record', async () => {
+      mockReq.params.id = 'record123';
+      mockReq.user.role = 'resident';
+
+      const record = {
+        _id: 'record123',
+        collector: { _id: 'collector123' },
+        resident: { _id: 'user123' }
+      };
+
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue(record)
+            })
+          })
+        })
+      });
+
+      await getCollectionRecord(mockReq, mockRes);
+
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true })
+      );
+    });
+
+    test('should deny collector viewing another collector\'s record', async () => {
+      mockReq.params.id = 'record123';
+      mockReq.user.role = 'collector';
+      mockReq.user._id = 'user123';
+
+      const record = {
+        _id: 'record123',
+        collector: { _id: 'different-collector' },
+        resident: null
+      };
+
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue(record)
+            })
+          })
+        })
+      });
+
+      await getCollectionRecord(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(403);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ 
+          success: false,
+          message: 'Not authorized'
+        })
+      );
+    });
+
+    test('should deny resident viewing another resident\'s record', async () => {
+      mockReq.params.id = 'record123';
+      mockReq.user.role = 'resident';
+      mockReq.user._id = 'user123';
+
+      const record = {
+        _id: 'record123',
+        collector: { _id: 'collector123' },
+        resident: { _id: 'different-resident' }
+      };
+
+      mockCollectionRecordModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockReturnValue({
+              populate: jest.fn().mockResolvedValue(record)
+            })
+          })
+        })
+      });
+
+      await getCollectionRecord(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(403);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ 
+          success: false,
+          message: 'Not authorized'
+        })
+      );
     });
   });
 });

@@ -15,7 +15,9 @@ const mockUserModel = {
   find: jest.fn(),
   findById: jest.fn(),
   findByIdAndUpdate: jest.fn(),
-  findByIdAndDelete: jest.fn()
+  findByIdAndDelete: jest.fn(),
+  countDocuments: jest.fn(),
+  aggregate: jest.fn()
 };
 
 // Setup mock before importing
@@ -24,7 +26,7 @@ jest.unstable_mockModule('../../models/User.model.js', () => ({
 }));
 
 // Import controller functions after mocking
-const { getUsers, getUser, updateUser, deleteUser, updateUserRole, activateUser, deactivateUser } = await import('../../controllers/user.controller.js');
+const { getUsers, getUser, updateUser, deleteUser, updateUserRole, activateUser, deactivateUser, getUserStats, getUserActivity } = await import('../../controllers/user.controller.js');
 
 describe('User Controller Tests', () => {
   let mockReq;
@@ -554,6 +556,317 @@ describe('User Controller Tests', () => {
 
       // Assert
       expect(mockRes.status).toHaveBeenCalledWith(404);
+    });
+
+    test('should handle database errors', async () => {
+      // Arrange
+      mockReq.params.id = 'user123';
+      
+      mockUserModel.findByIdAndUpdate.mockReturnValue({
+        select: jest.fn().mockRejectedValue(new Error('Database error'))
+      });
+
+      // Act
+      await deactivateUser(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Database error'
+      });
+    });
+  });
+
+  describe('getUserStats', () => {
+    test('should get user statistics successfully', async () => {
+      // Arrange
+      const mockStats = {
+        total: 100,
+        active: 85,
+        inactive: 15,
+        byRole: [
+          { _id: 'resident', count: 60 },
+          { _id: 'collector', count: 30 },
+          { _id: 'admin', count: 10 }
+        ],
+        recentUsers: [mockUser],
+        userGrowth: [
+          { _id: { year: 2024, month: 10 }, count: 15 },
+          { _id: { year: 2024, month: 9 }, count: 12 }
+        ]
+      };
+
+      mockUserModel.countDocuments
+        .mockResolvedValueOnce(100) // total
+        .mockResolvedValueOnce(85)  // active
+        .mockResolvedValueOnce(15); // inactive
+
+      mockUserModel.aggregate
+        .mockResolvedValueOnce(mockStats.byRole) // byRole aggregation
+        .mockResolvedValueOnce(mockStats.userGrowth); // userGrowth aggregation
+
+      mockUserModel.find.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue(mockStats.recentUsers)
+      });
+
+      // Act
+      await getUserStats(mockReq, mockRes);
+
+      // Assert
+      expect(mockUserModel.countDocuments).toHaveBeenCalledTimes(3);
+      expect(mockUserModel.aggregate).toHaveBeenCalledTimes(2);
+      expect(mockUserModel.find).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        data: {
+          total: 100,
+          active: 85,
+          inactive: 15,
+          byRole: mockStats.byRole,
+          recentUsers: mockStats.recentUsers,
+          userGrowth: mockStats.userGrowth
+        }
+      });
+    });
+
+    test('should handle database errors', async () => {
+      // Arrange
+      mockUserModel.countDocuments.mockRejectedValue(new Error('Database connection failed'));
+
+      // Act
+      await getUserStats(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Database connection failed'
+      });
+    });
+  });
+
+  describe('getUserActivity', () => {
+    const mockPickupRequest = {
+      requestId: 'PU001',
+      status: 'pending',
+      wasteType: 'plastic',
+      createdAt: new Date()
+    };
+
+    const mockTicket = {
+      ticketId: 'TKT001',
+      subject: 'Test ticket',
+      status: 'open',
+      priority: 'high',
+      createdAt: new Date()
+    };
+
+    const mockPayment = {
+      invoiceId: 'INV001',
+      amount: 100,
+      status: 'completed',
+      paymentDate: new Date()
+    };
+
+    const mockFeedback = {
+      category: 'service',
+      subject: 'Test feedback',
+      rating: 5,
+      status: 'active',
+      createdAt: new Date()
+    };
+
+    // Mock the dynamic imports
+    const mockPickupRequestModel = {
+      find: jest.fn()
+    };
+
+    const mockTicketModel = {
+      find: jest.fn()
+    };
+
+    const mockPaymentModel = {
+      find: jest.fn()
+    };
+
+    const mockFeedbackModel = {
+      find: jest.fn()
+    };
+
+    beforeAll(async () => {
+      // Mock the dynamic imports
+      jest.unstable_mockModule('../../models/PickupRequest.model.js', () => ({
+        default: mockPickupRequestModel
+      }));
+
+      jest.unstable_mockModule('../../models/Ticket.model.js', () => ({
+        default: mockTicketModel
+      }));
+
+      jest.unstable_mockModule('../../models/Payment.model.js', () => ({
+        default: mockPaymentModel
+      }));
+
+      jest.unstable_mockModule('../../models/Feedback.model.js', () => ({
+        default: mockFeedbackModel
+      }));
+    });
+
+    test('should get user activity for admin', async () => {
+      // Arrange
+      mockReq.params.id = 'user123';
+      mockReq.user = { _id: 'admin123', role: 'admin' };
+
+      mockUserModel.findById.mockReturnValue({
+        select: jest.fn().mockResolvedValue(mockUser)
+      });
+
+      mockPickupRequestModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockPickupRequest])
+      });
+
+      mockTicketModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockTicket])
+      });
+
+      mockPaymentModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockPayment])
+      });
+
+      mockFeedbackModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockFeedback])
+      });
+
+      // Act
+      await getUserActivity(mockReq, mockRes);
+
+      // Assert
+      expect(mockUserModel.findById).toHaveBeenCalledWith('user123');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        data: expect.objectContaining({
+          user: mockUser,
+          activity: expect.objectContaining({
+            pickupRequests: expect.any(Object),
+            tickets: expect.any(Object),
+            payments: expect.any(Object),
+            feedback: expect.any(Object)
+          })
+        })
+      });
+    });
+
+    test('should get user activity for owner', async () => {
+      // Arrange
+      mockReq.params.id = 'user123';
+      mockReq.user = { _id: 'user123', role: 'resident' };
+
+      mockUserModel.findById.mockReturnValue({
+        select: jest.fn().mockResolvedValue(mockUser)
+      });
+
+      mockPickupRequestModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockPickupRequest])
+      });
+
+      mockTicketModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockTicket])
+      });
+
+      mockPaymentModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockPayment])
+      });
+
+      mockFeedbackModel.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue([mockFeedback])
+      });
+
+      // Act
+      await getUserActivity(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should return 404 for non-existent user', async () => {
+      // Arrange
+      mockReq.params.id = 'nonexistent';
+      mockReq.user = { _id: 'admin123', role: 'admin' };
+
+      mockUserModel.findById.mockReturnValue({
+        select: jest.fn().mockResolvedValue(null)
+      });
+
+      // Act
+      await getUserActivity(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'User not found'
+      });
+    });
+
+    test('should return 403 for unauthorized access', async () => {
+      // Arrange
+      mockReq.params.id = 'user123';
+      mockReq.user = { _id: 'otheruser', role: 'resident' };
+
+      mockUserModel.findById.mockReturnValue({
+        select: jest.fn().mockResolvedValue(mockUser)
+      });
+
+      // Act
+      await getUserActivity(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(403);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Not authorized to view this user activity'
+      });
+    });
+
+    test('should handle database errors', async () => {
+      // Arrange
+      mockReq.params.id = 'user123';
+      mockReq.user = { _id: 'admin123', role: 'admin' };
+
+      mockUserModel.findById.mockReturnValue({
+        select: jest.fn().mockRejectedValue(new Error('Database error'))
+      });
+
+      // Act
+      await getUserActivity(mockReq, mockRes);
+
+      // Assert
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Database error'
+      });
     });
   });
 });

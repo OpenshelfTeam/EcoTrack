@@ -8,12 +8,14 @@ const mockSmartBinModel = {
 
 const mockCollectionRecordModel = {
   countDocuments: jest.fn(),
-  aggregate: jest.fn()
+  aggregate: jest.fn(),
+  find: jest.fn()
 };
 
 const mockPickupRequestModel = {
   countDocuments: jest.fn(),
-  aggregate: jest.fn()
+  aggregate: jest.fn(),
+  find: jest.fn()
 };
 
 const mockTicketModel = {
@@ -23,11 +25,13 @@ const mockTicketModel = {
 
 const mockPaymentModel = {
   aggregate: jest.fn(),
-  countDocuments: jest.fn()
+  countDocuments: jest.fn(),
+  find: jest.fn()
 };
 
 const mockRouteModel = {
-  countDocuments: jest.fn()
+  countDocuments: jest.fn(),
+  aggregate: jest.fn()
 };
 
 const mockUserModel = {
@@ -170,6 +174,40 @@ describe('Analytics Controller Comprehensive Tests', () => {
       );
     });
 
+    test('should filter by date range', async () => {
+      mockReq.query = {
+        startDate: '2024-01-01',
+        endDate: '2024-12-31'
+      };
+
+      mockCollectionRecordModel.aggregate.mockResolvedValue([]);
+
+      await getWasteStatistics(mockReq, mockRes);
+
+      expect(mockCollectionRecordModel.aggregate).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          data: expect.objectContaining({
+            byType: expect.any(Array),
+            trends: expect.any(Array)
+          })
+        })
+      );
+    });
+
+    test('should group by month', async () => {
+      mockReq.query = {
+        groupBy: 'month'
+      };
+
+      mockCollectionRecordModel.aggregate.mockResolvedValue([]);
+
+      await getWasteStatistics(mockReq, mockRes);
+
+      expect(mockCollectionRecordModel.aggregate).toHaveBeenCalled();
+    });
+
     test('should handle database errors', async () => {
       mockCollectionRecordModel.aggregate.mockRejectedValue(new Error('DB Error'));
 
@@ -181,22 +219,34 @@ describe('Analytics Controller Comprehensive Tests', () => {
 
   describe('getEfficiencyMetrics', () => {
     test('should get efficiency metrics', async () => {
-      mockRouteModel.countDocuments.mockResolvedValue(5);
+      mockRouteModel.aggregate.mockResolvedValue([
+        { avgDuration: 45, avgDistance: 15, completionRate: 90 }
+      ]);
+      
       mockCollectionRecordModel.aggregate.mockResolvedValue([
-        { avgCollectionTime: 30, totalCollections: 100 }
+        { _id: 'collector1', collectionsCompleted: 50, totalWeight: 500, avgWeight: 10 }
+      ]);
+      
+      mockSmartBinModel.aggregate.mockResolvedValue([
+        { _id: 'plastic', avgFillLevel: 75, count: 20 }
       ]);
 
       await getEfficiencyMetrics(mockReq, mockRes);
 
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          success: true
+          success: true,
+          data: expect.objectContaining({
+            routeEfficiency: expect.any(Object),
+            collectorPerformance: expect.any(Array),
+            binUtilization: expect.any(Array)
+          })
         })
       );
     });
 
     test('should handle database errors', async () => {
-      mockRouteModel.countDocuments.mockRejectedValue(new Error('DB Error'));
+      mockRouteModel.aggregate.mockRejectedValue(new Error('DB Error'));
 
       await getEfficiencyMetrics(mockReq, mockRes);
 
@@ -232,22 +282,31 @@ describe('Analytics Controller Comprehensive Tests', () => {
 
   describe('getAreaStatistics', () => {
     test('should get area statistics', async () => {
+      mockRouteModel.aggregate.mockResolvedValue([
+        { _id: 'Colombo', routeCount: 5, totalBins: 50 }
+      ]);
+      
       mockSmartBinModel.aggregate.mockResolvedValue([
-        { _id: { district: 'Colombo' }, totalBins: 50, activeBins: 45 }
+        { _id: '123 Main St', binCount: 10, avgFillLevel: 75 }
       ]);
 
       await getAreaStatistics(mockReq, mockRes);
 
+      expect(mockRouteModel.aggregate).toHaveBeenCalled();
       expect(mockSmartBinModel.aggregate).toHaveBeenCalled();
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          success: true
+          success: true,
+          data: expect.objectContaining({
+            routesByArea: expect.any(Array),
+            binsByLocation: expect.any(Array)
+          })
         })
       );
     });
 
     test('should handle database errors', async () => {
-      mockSmartBinModel.aggregate.mockRejectedValue(new Error('DB Error'));
+      mockRouteModel.aggregate.mockRejectedValue(new Error('DB Error'));
 
       await getAreaStatistics(mockReq, mockRes);
 
@@ -288,33 +347,112 @@ describe('Analytics Controller Comprehensive Tests', () => {
   });
 
   describe('exportAnalytics', () => {
-    test('should export analytics as CSV', async () => {
-      mockReq.query.format = 'csv';
+    test('should export collections data', async () => {
+      mockReq.query = { type: 'collections' };
 
-      mockSmartBinModel.countDocuments.mockResolvedValue(10);
-      mockCollectionRecordModel.countDocuments.mockResolvedValue(50);
+      mockCollectionRecordModel.find.mockReturnValue({
+        populate: jest.fn().mockResolvedValue([
+          { bin: 'bin1', collector: 'collector1', resident: 'resident1', route: 'route1' }
+        ])
+      });
 
       await exportAnalytics(mockReq, mockRes);
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith(
-        'Content-Type',
-        'text/csv'
-      );
-      expect(mockRes.send).toHaveBeenCalled();
-    });
-
-    test('should export analytics as JSON by default', async () => {
-      await exportAnalytics(mockReq, mockRes);
-
+      expect(mockCollectionRecordModel.find).toHaveBeenCalled();
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          success: true
+          success: true,
+          data: expect.any(Array)
         })
       );
     });
 
+    test('should export pickups data', async () => {
+      mockReq.query = { type: 'pickups' };
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockResolvedValue([
+          { resident: 'resident1', collector: 'collector1' }
+        ])
+      });
+
+      await exportAnalytics(mockReq, mockRes);
+
+      expect(mockPickupRequestModel.find).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          data: expect.any(Array)
+        })
+      );
+    });
+
+    test('should export payments data', async () => {
+      mockReq.query = { type: 'payments' };
+
+      mockPaymentModel.find.mockReturnValue({
+        populate: jest.fn().mockResolvedValue([
+          { user: 'user1', amount: 100 }
+        ])
+      });
+
+      await exportAnalytics(mockReq, mockRes);
+
+      expect(mockPaymentModel.find).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          data: expect.any(Array)
+        })
+      );
+    });
+
+    test('should filter by date range', async () => {
+      mockReq.query = {
+        type: 'collections',
+        startDate: '2024-01-01',
+        endDate: '2024-12-31'
+      };
+
+      mockCollectionRecordModel.find.mockReturnValue({
+        populate: jest.fn().mockResolvedValue([])
+      });
+
+      await exportAnalytics(mockReq, mockRes);
+
+      expect(mockCollectionRecordModel.find).toHaveBeenCalled();
+    });
+
+    test('should return 400 for invalid export type', async () => {
+      mockReq.query = { type: 'invalid' };
+
+      await exportAnalytics(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Invalid export type'
+      });
+    });
+
+    test('should return 400 when no type specified', async () => {
+      mockReq.query = {};
+
+      await exportAnalytics(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        message: 'Invalid export type'
+      });
+    });
+
     test('should handle database errors', async () => {
-      mockSmartBinModel.countDocuments.mockRejectedValue(new Error('DB Error'));
+      mockReq.query = { type: 'collections' };
+      
+      mockCollectionRecordModel.find.mockReturnValue({
+        populate: jest.fn().mockRejectedValue(new Error('DB Error'))
+      });
 
       await exportAnalytics(mockReq, mockRes);
 

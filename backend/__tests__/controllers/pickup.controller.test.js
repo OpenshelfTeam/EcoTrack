@@ -4,6 +4,7 @@ import { jest } from '@jest/globals';
 const mockPickupRequestModel = {
   find: jest.fn(),
   findById: jest.fn(),
+  findOne: jest.fn(),
   create: jest.fn(),
   countDocuments: jest.fn(),
   aggregate: jest.fn()
@@ -22,6 +23,10 @@ const mockCollectionRecordModel = {
   create: jest.fn()
 };
 
+const mockSmartBinModel = {
+  findById: jest.fn()
+};
+
 // Setup mocks
 jest.unstable_mockModule('../../models/PickupRequest.model.js', () => ({
   default: mockPickupRequestModel
@@ -37,6 +42,10 @@ jest.unstable_mockModule('../../models/Notification.model.js', () => ({
 
 jest.unstable_mockModule('../../models/CollectionRecord.model.js', () => ({
   default: mockCollectionRecordModel
+}));
+
+jest.unstable_mockModule('../../models/SmartBin.model.js', () => ({
+  default: mockSmartBinModel
 }));
 
 // Import functions
@@ -73,56 +82,107 @@ describe('Pickup Controller Comprehensive Tests', () => {
     test('should create pickup request successfully', async () => {
       mockReq.body = {
         wasteType: 'recyclable',
-        pickupDate: '2024-02-01',
-        description: 'Test pickup'
+        description: 'Paper waste',
+        quantity: '50kg',
+        preferredDate: '2024-12-01',
+        timeSlot: 'morning',
+        pickupLocation: { address: '123 Main St' },
+        contactPerson: { name: 'John' }
       };
 
+      mockPickupRequestModel.findOne.mockResolvedValue(null);
+      
       const pickup = {
         _id: 'pickup123',
+        requestedBy: {
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@test.com',
+          phone: '1234567890'
+        },
         wasteType: 'recyclable',
+        preferredDate: '2024-12-01',
+        timeSlot: 'morning',
         populate: jest.fn().mockResolvedValue({
           _id: 'pickup123',
-          wasteType: 'recyclable'
+          requestedBy: {
+            firstName: 'John',
+            lastName: 'Doe'
+          }
         })
       };
 
       mockPickupRequestModel.create.mockResolvedValue(pickup);
+      mockUserModel.find.mockResolvedValue([
+        { _id: 'op1', role: 'operator' },
+        { _id: 'op2', role: 'admin' }
+      ]);
+      mockNotificationModel.create.mockResolvedValue({});
 
       await createPickupRequest(mockReq, mockRes);
 
-      expect(mockPickupRequestModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resident: 'user123',
-          wasteType: 'recyclable'
-        })
-      );
+      expect(mockPickupRequestModel.findOne).toHaveBeenCalled();
+      expect(mockPickupRequestModel.create).toHaveBeenCalled();
+      expect(mockNotificationModel.create).toHaveBeenCalledTimes(2);
       expect(mockRes.status).toHaveBeenCalledWith(201);
     });
 
-    test('should handle database errors', async () => {
-      mockReq.body = { wasteType: 'recyclable' };
+    test('should return 400 if pickup already scheduled for date', async () => {
+      mockReq.body = {
+        wasteType: 'recyclable',
+        preferredDate: '2024-12-01',
+        timeSlot: 'morning'
+      };
 
-      mockPickupRequestModel.create.mockRejectedValue(new Error('DB Error'));
+      const existingPickup = {
+        _id: 'existing123',
+        preferredDate: '2024-12-01',
+        status: 'pending',
+        timeSlot: 'morning'
+      };
+
+      mockPickupRequestModel.findOne.mockResolvedValue(existingPickup);
 
       await createPickupRequest(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: expect.stringContaining('already scheduled')
+        })
+      );
+    });
+
+    test('should handle errors gracefully', async () => {
+      mockReq.body = {
+        wasteType: 'recyclable',
+        preferredDate: '2024-12-01'
+      };
+
+      mockPickupRequestModel.findOne.mockRejectedValue(new Error('DB Error'));
+
+      await createPickupRequest(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
   });
 
   describe('getPickupRequests', () => {
-    test('should get all pickup requests for admin', async () => {
+    test('should get all pickups for admin', async () => {
       mockReq.user.role = 'admin';
-      mockReq.query = { page: '1', limit: '10' };
 
       mockPickupRequestModel.find.mockReturnValue({
-        populate: jest.fn().mockReturnThis(),
-        sort: jest.fn().mockReturnThis(),
-        skip: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([
-          { _id: 'pickup1' },
-          { _id: 'pickup2' }
-        ])
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([
+                { _id: 'p1' },
+                { _id: 'p2' }
+              ])
+            })
+          })
+        })
       });
       mockPickupRequestModel.countDocuments.mockResolvedValue(2);
 
@@ -136,29 +196,35 @@ describe('Pickup Controller Comprehensive Tests', () => {
       mockReq.user.role = 'resident';
 
       mockPickupRequestModel.find.mockReturnValue({
-        populate: jest.fn().mockReturnThis(),
-        sort: jest.fn().mockReturnThis(),
-        skip: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([])
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
       });
       mockPickupRequestModel.countDocuments.mockResolvedValue(0);
 
       await getPickupRequests(mockReq, mockRes);
 
       expect(mockPickupRequestModel.find).toHaveBeenCalledWith(
-        expect.objectContaining({ resident: 'user123' })
+        expect.objectContaining({ requestedBy: 'user123' })
       );
     });
 
     test('should filter by status', async () => {
       mockReq.user.role = 'admin';
-      mockReq.query = { status: 'pending' };
+      mockReq.query.status = 'pending';
 
       mockPickupRequestModel.find.mockReturnValue({
-        populate: jest.fn().mockReturnThis(),
-        sort: jest.fn().mockReturnThis(),
-        skip: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([])
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
       });
       mockPickupRequestModel.countDocuments.mockResolvedValue(0);
 
@@ -169,15 +235,18 @@ describe('Pickup Controller Comprehensive Tests', () => {
       );
     });
 
-    test('should filter by wasteType', async () => {
+    test('should filter by waste type', async () => {
       mockReq.user.role = 'admin';
-      mockReq.query = { wasteType: 'recyclable' };
+      mockReq.query.wasteType = 'recyclable';
 
       mockPickupRequestModel.find.mockReturnValue({
-        populate: jest.fn().mockReturnThis(),
-        sort: jest.fn().mockReturnThis(),
-        skip: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue([])
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
       });
       mockPickupRequestModel.countDocuments.mockResolvedValue(0);
 
@@ -186,6 +255,117 @@ describe('Pickup Controller Comprehensive Tests', () => {
       expect(mockPickupRequestModel.find).toHaveBeenCalledWith(
         expect.objectContaining({ wasteType: 'recyclable' })
       );
+    });
+
+    test('should filter by collector', async () => {
+      mockReq.user.role = 'admin';
+      mockReq.query.assignedTo = 'collector123';
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
+      });
+      mockPickupRequestModel.countDocuments.mockResolvedValue(0);
+
+      await getPickupRequests(mockReq, mockRes);
+
+      expect(mockPickupRequestModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({ assignedTo: 'collector123' })
+      );
+    });
+
+    test('should filter by priority', async () => {
+      mockReq.user.role = 'admin';
+      mockReq.query.priority = 'high';
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
+      });
+      mockPickupRequestModel.countDocuments.mockResolvedValue(0);
+
+      await getPickupRequests(mockReq, mockRes);
+
+      expect(mockPickupRequestModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({ priority: 'high' })
+      );
+    });
+
+    test('should filter by date range', async () => {
+      mockReq.user.role = 'admin';
+      mockReq.query.startDate = '2024-01-01';
+      mockReq.query.endDate = '2024-12-31';
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
+      });
+      mockPickupRequestModel.countDocuments.mockResolvedValue(0);
+
+      await getPickupRequests(mockReq, mockRes);
+
+      const filterArg = mockPickupRequestModel.find.mock.calls[0][0];
+      expect(filterArg.preferredDate).toBeDefined();
+      expect(filterArg.preferredDate.$gte).toBeDefined();
+      expect(filterArg.preferredDate.$lte).toBeDefined();
+    });
+
+    test('should search by text', async () => {
+      mockReq.user.role = 'admin';
+      mockReq.query.search = 'recyclable';
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
+      });
+      mockPickupRequestModel.countDocuments.mockResolvedValue(0);
+
+      await getPickupRequests(mockReq, mockRes);
+
+      const filterArg = mockPickupRequestModel.find.mock.calls[0][0];
+      expect(filterArg.$or).toBeDefined();
+    });
+
+    test('should get pickups for collector role', async () => {
+      mockReq.user.role = 'collector';
+      mockReq.user._id = 'collector123';
+
+      mockPickupRequestModel.find.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          sort: jest.fn().mockReturnValue({
+            skip: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([])
+            })
+          })
+        })
+      });
+      mockPickupRequestModel.countDocuments.mockResolvedValue(0);
+
+      await getPickupRequests(mockReq, mockRes);
+
+      const filterArg = mockPickupRequestModel.find.mock.calls[0][0];
+      expect(filterArg.$or).toBeDefined();
+      expect(filterArg.$or.length).toBe(2);
     });
 
     test('should handle database errors', async () => {
@@ -202,14 +382,36 @@ describe('Pickup Controller Comprehensive Tests', () => {
   });
 
   describe('getPickupRequest', () => {
-    test('should get pickup request by ID', async () => {
+    test('should get pickup by ID with proper populate chain', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.user.role = 'admin';
 
       const pickup = {
         _id: 'pickup123',
-        wasteType: 'recyclable',
-        resident: { _id: 'user123' }
+        requestedBy: { _id: 'user123', firstName: 'John', lastName: 'Doe' }
+      };
+
+      mockPickupRequestModel.findById.mockReturnValue({
+        populate: jest.fn().mockReturnValue({
+          populate: jest.fn().mockReturnValue({
+            populate: jest.fn().mockResolvedValue(pickup)
+          })
+        })
+      });
+
+      await getPickupRequest(mockReq, mockRes);
+
+      expect(mockPickupRequestModel.findById).toHaveBeenCalledWith('pickup123');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should get pickup by ID', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.user.role = 'admin';
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: 'user123'
       };
 
       mockPickupRequestModel.findById.mockReturnValue({
@@ -240,7 +442,7 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
       const pickup = {
         _id: 'pickup123',
-        resident: { _id: 'different-user' }
+        requestedBy: { _id: 'different-user' }
       };
 
       mockPickupRequestModel.findById.mockReturnValue({
@@ -266,13 +468,13 @@ describe('Pickup Controller Comprehensive Tests', () => {
   });
 
   describe('updatePickupRequest', () => {
-    test('should update pickup request successfully', async () => {
+    test('should update pickup successfully', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { description: 'Updated description' };
+      mockReq.body = { notes: 'Updated notes' };
 
       const pickup = {
         _id: 'pickup123',
-        resident: 'user123',
+        requestedBy: { _id: 'user123' },
         status: 'pending',
         save: jest.fn().mockResolvedValue(true),
         populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
@@ -282,13 +484,37 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
       await updatePickupRequest(mockReq, mockRes);
 
-      expect(pickup.description).toBe('Updated description');
+      expect(pickup.notes).toBe('Updated notes');
       expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should prevent resident from updating non-pending request', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { notes: 'Test' };
+      mockReq.user.role = 'resident';
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'user123' },
+        status: 'in-progress'
+      };
+
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+
+      await updatePickupRequest(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Can only update pending requests'
+        })
+      );
     });
 
     test('should return 404 if pickup not found', async () => {
       mockReq.params.id = 'nonexistent';
-      mockReq.body = { description: 'Test' };
+      mockReq.body = { notes: 'Test' };
 
       mockPickupRequestModel.findById.mockResolvedValue(null);
 
@@ -299,7 +525,7 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
     test('should return 400 if pickup already completed', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { description: 'Test' };
+      mockReq.body = { notes: 'Test' };
 
       const pickup = {
         _id: 'pickup123',
@@ -315,7 +541,7 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
     test('should handle database errors', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { description: 'Test' };
+      mockReq.body = { notes: 'Test' };
 
       mockPickupRequestModel.findById.mockRejectedValue(new Error('DB Error'));
 
@@ -326,37 +552,85 @@ describe('Pickup Controller Comprehensive Tests', () => {
   });
 
   describe('updatePickupStatus', () => {
-    test('should update pickup status successfully', async () => {
+    test('should update status to approved', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { status: 'collected' };
+      mockReq.body = { status: 'approved' };
+      mockReq.user.role = 'operator';
 
       const pickup = {
         _id: 'pickup123',
-        resident: { _id: 'resident123' },
-        status: 'in-progress',
+        requestedBy: { _id: 'resident123' },
+        status: 'pending',
+        statusHistory: [],
         save: jest.fn().mockResolvedValue(true),
         populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
       };
 
-      mockPickupRequestModel.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(pickup)
-      });
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
       mockNotificationModel.create.mockResolvedValue({});
 
       await updatePickupStatus(mockReq, mockRes);
 
-      expect(pickup.status).toBe('collected');
+      expect(pickup.status).toBe('approved');
+      expect(pickup.statusHistory.length).toBe(1);
       expect(mockNotificationModel.create).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
+    test('should set completed date when status is completed', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { status: 'completed', notes: 'All done' };
+      mockReq.user.role = 'collector';
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'resident123' },
+        status: 'in-progress',
+        statusHistory: [],
+        save: jest.fn().mockResolvedValue(true),
+        populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
+      };
+
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+      mockNotificationModel.create.mockResolvedValue({});
+
+      await updatePickupStatus(mockReq, mockRes);
+
+      expect(pickup.status).toBe('completed');
+      expect(pickup.completedDate).toBeDefined();
+      expect(pickup.statusHistory[0].notes).toBe('All done');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should update status to rejected with reason', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { status: 'rejected', rejectionReason: 'Out of service area' };
+      mockReq.user.role = 'operator';
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'resident123' },
+        status: 'pending',
+        statusHistory: [],
+        save: jest.fn().mockResolvedValue(true),
+        populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
+      };
+
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+      mockNotificationModel.create.mockResolvedValue({});
+
+      await updatePickupStatus(mockReq, mockRes);
+
+      expect(pickup.status).toBe('rejected');
+      expect(pickup.rejectionReason).toBe('Out of service area');
+      expect(mockNotificationModel.create).toHaveBeenCalled();
+    });
+
     test('should return 404 if pickup not found', async () => {
       mockReq.params.id = 'nonexistent';
-      mockReq.body = { status: 'collected' };
+      mockReq.body = { status: 'approved' };
 
-      mockPickupRequestModel.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(null)
-      });
+      mockPickupRequestModel.findById.mockResolvedValue(null);
 
       await updatePickupStatus(mockReq, mockRes);
 
@@ -365,11 +639,9 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
     test('should handle database errors', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { status: 'collected' };
+      mockReq.body = { status: 'approved' };
 
-      mockPickupRequestModel.findById.mockImplementation(() => {
-        throw new Error('DB Error');
-      });
+      mockPickupRequestModel.findById.mockRejectedValue(new Error('DB Error'));
 
       await updatePickupStatus(mockReq, mockRes);
 
@@ -380,47 +652,96 @@ describe('Pickup Controller Comprehensive Tests', () => {
   describe('assignCollector', () => {
     test('should assign collector successfully', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { collectorId: 'collector123' };
+      mockReq.body = { collectorId: 'collector123', scheduledDate: '2024-12-15' };
 
       const collector = {
         _id: 'collector123',
+        firstName: 'Jane',
+        lastName: 'Collector',
         role: 'collector'
       };
 
       const pickup = {
         _id: 'pickup123',
-        resident: { _id: 'resident123' },
-        status: 'pending',
+        requestedBy: { 
+          _id: 'resident123',
+          firstName: 'John',
+          lastName: 'Resident'
+        },
+        wasteType: 'recyclable',
+        pickupLocation: { address: '123 Main St' },
+        status: 'approved',
+        statusHistory: [],
         save: jest.fn().mockResolvedValue(true),
-        populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
+        populate: jest.fn().mockReturnThis()
       };
 
-      mockUserModel.findById.mockResolvedValue(collector);
       mockPickupRequestModel.findById.mockReturnValue({
         populate: jest.fn().mockResolvedValue(pickup)
       });
+      mockUserModel.findById.mockResolvedValue(collector);
       mockNotificationModel.create.mockResolvedValue({});
 
       await assignCollector(mockReq, mockRes);
 
       expect(pickup.assignedCollector).toBe('collector123');
-      expect(pickup.status).toBe('assigned');
-      expect(mockNotificationModel.create).toHaveBeenCalled();
+      expect(pickup.status).toBe('scheduled');
+      expect(pickup.scheduledDate).toBe('2024-12-15');
+      expect(pickup.statusHistory.length).toBe(1);
+      expect(mockNotificationModel.create).toHaveBeenCalledTimes(2);
       expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should return 400 if pickup has no associated resident', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { collectorId: 'collector123' };
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: null
+      };
+
+      mockPickupRequestModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(pickup)
+      });
+
+      await assignCollector(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Pickup request has no associated resident'
+        })
+      );
     });
 
     test('should return 404 if collector not found', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = { collectorId: 'nonexistent' };
 
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'resident123' }
+      };
+
+      mockPickupRequestModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(pickup)
+      });
       mockUserModel.findById.mockResolvedValue(null);
 
       await assignCollector(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Collector not found'
+        })
+      );
     });
 
-    test('should return 400 if user is not collector', async () => {
+    test('should return 400 if user is not a collector', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = { collectorId: 'user123' };
 
@@ -429,18 +750,31 @@ describe('Pickup Controller Comprehensive Tests', () => {
         role: 'resident'
       };
 
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'resident123' }
+      };
+
+      mockPickupRequestModel.findById.mockReturnValue({
+        populate: jest.fn().mockResolvedValue(pickup)
+      });
       mockUserModel.findById.mockResolvedValue(user);
 
       await assignCollector(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Selected user is not a collector'
+        })
+      );
     });
 
     test('should return 404 if pickup not found', async () => {
       mockReq.params.id = 'nonexistent';
       mockReq.body = { collectorId: 'collector123' };
 
-      mockUserModel.findById.mockResolvedValue({ role: 'collector' });
       mockPickupRequestModel.findById.mockReturnValue({
         populate: jest.fn().mockResolvedValue(null)
       });
@@ -454,7 +788,9 @@ describe('Pickup Controller Comprehensive Tests', () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = { collectorId: 'collector123' };
 
-      mockUserModel.findById.mockRejectedValue(new Error('DB Error'));
+      mockPickupRequestModel.findById.mockReturnValue({
+        populate: jest.fn().mockRejectedValue(new Error('DB Error'))
+      });
 
       await assignCollector(mockReq, mockRes);
 
@@ -463,14 +799,65 @@ describe('Pickup Controller Comprehensive Tests', () => {
   });
 
   describe('cancelPickupRequest', () => {
-    test('should cancel pickup request successfully', async () => {
+    test('should cancel pickup successfully', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = { reason: 'Changed plans' };
 
       const pickup = {
         _id: 'pickup123',
-        resident: 'user123',
+        requestedBy: { _id: 'user123' },
+        assignedCollector: { _id: 'collector123' },
         status: 'pending',
+        statusHistory: [],
+        save: jest.fn().mockResolvedValue(true),
+        populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
+      };
+
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+      mockNotificationModel.create.mockResolvedValue({});
+
+      await cancelPickupRequest(mockReq, mockRes);
+
+      expect(pickup.status).toBe('cancelled');
+      expect(pickup.cancellationReason).toBe('Changed plans');
+      expect(pickup.statusHistory.length).toBe(1);
+      expect(pickup.statusHistory[0].notes).toBe('Changed plans');
+      expect(mockNotificationModel.create).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    test('should prevent cancelling completed pickup', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { reason: 'Test' };
+
+      const pickup = {
+        _id: 'pickup123',
+        status: 'completed'
+      };
+
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+
+      await cancelPickupRequest(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Cannot cancel this pickup request'
+        })
+      );
+    });
+
+    test('should cancel without notifying collector if not assigned', async () => {
+      mockReq.params.id = 'pickup123';
+      mockReq.body = { reason: 'Test' };
+
+      const pickup = {
+        _id: 'pickup123',
+        requestedBy: { _id: 'user123' },
+        assignedCollector: null,
+        status: 'pending',
+        statusHistory: [],
         save: jest.fn().mockResolvedValue(true),
         populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
       };
@@ -480,8 +867,7 @@ describe('Pickup Controller Comprehensive Tests', () => {
       await cancelPickupRequest(mockReq, mockRes);
 
       expect(pickup.status).toBe('cancelled');
-      expect(pickup.cancellationReason).toBe('Changed plans');
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockNotificationModel.create).not.toHaveBeenCalled();
     });
 
     test('should return 404 if pickup not found', async () => {
@@ -495,13 +881,13 @@ describe('Pickup Controller Comprehensive Tests', () => {
       expect(mockRes.status).toHaveBeenCalledWith(404);
     });
 
-    test('should return 400 if pickup already completed', async () => {
+    test('should return 400 if already cancelled', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = { reason: 'Test' };
 
       const pickup = {
         _id: 'pickup123',
-        status: 'completed'
+        status: 'cancelled'
       };
 
       mockPickupRequestModel.findById.mockResolvedValue(pickup);
@@ -519,29 +905,27 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
       await cancelPickupRequest(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
   });
 
   describe('getPickupStats', () => {
-    test('should return pickup statistics', async () => {
+    test('should get pickup statistics', async () => {
+      mockPickupRequestModel.countDocuments.mockResolvedValue(100);
       mockPickupRequestModel.aggregate.mockResolvedValue([
-        {
-          _id: null,
-          totalPickups: 100,
-          completedPickups: 80,
-          pendingPickups: 20
-        }
+        { _id: 'recyclable', count: 50 },
+        { _id: 'organic', count: 30 }
       ]);
 
       await getPickupStats(mockReq, mockRes);
 
+      expect(mockPickupRequestModel.countDocuments).toHaveBeenCalled();
       expect(mockPickupRequestModel.aggregate).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
     test('should handle database errors', async () => {
-      mockPickupRequestModel.aggregate.mockRejectedValue(new Error('DB Error'));
+      mockPickupRequestModel.countDocuments.mockRejectedValue(new Error('DB Error'));
 
       await getPickupStats(mockReq, mockRes);
 
@@ -553,23 +937,24 @@ describe('Pickup Controller Comprehensive Tests', () => {
     test('should complete pickup successfully', async () => {
       mockReq.params.id = 'pickup123';
       mockReq.body = {
-        weightCollected: 10,
+        actualPickupDate: '2024-12-01',
+        collectedQuantity: '45kg',
         notes: 'Completed successfully'
       };
 
       const pickup = {
         _id: 'pickup123',
-        resident: { _id: 'resident123' },
+        requestedBy: { _id: 'resident123' },
+        assignedTo: { _id: 'collector123' },
         wasteType: 'recyclable',
         status: 'in-progress',
+        statusHistory: [],
         save: jest.fn().mockResolvedValue(true),
         populate: jest.fn().mockResolvedValue({ _id: 'pickup123' })
       };
 
-      mockPickupRequestModel.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(pickup)
-      });
-      mockCollectionRecordModel.create.mockResolvedValue({});
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
+      mockCollectionRecordModel.create.mockResolvedValue({ _id: 'record123' });
       mockNotificationModel.create.mockResolvedValue({});
 
       await completePickup(mockReq, mockRes);
@@ -583,29 +968,25 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
     test('should return 404 if pickup not found', async () => {
       mockReq.params.id = 'nonexistent';
-      mockReq.body = { weightCollected: 10 };
+      mockReq.body = { actualPickupDate: '2024-12-01' };
 
-      mockPickupRequestModel.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(null)
-      });
+      mockPickupRequestModel.findById.mockResolvedValue(null);
 
       await completePickup(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(404);
     });
 
-    test('should return 400 if pickup not in progress', async () => {
+    test('should return 400 if not in valid status', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { weightCollected: 10 };
+      mockReq.body = { actualPickupDate: '2024-12-01' };
 
       const pickup = {
         _id: 'pickup123',
         status: 'pending'
       };
 
-      mockPickupRequestModel.findById.mockReturnValue({
-        populate: jest.fn().mockResolvedValue(pickup)
-      });
+      mockPickupRequestModel.findById.mockResolvedValue(pickup);
 
       await completePickup(mockReq, mockRes);
 
@@ -614,11 +995,9 @@ describe('Pickup Controller Comprehensive Tests', () => {
 
     test('should handle database errors', async () => {
       mockReq.params.id = 'pickup123';
-      mockReq.body = { weightCollected: 10 };
+      mockReq.body = { actualPickupDate: '2024-12-01' };
 
-      mockPickupRequestModel.findById.mockImplementation(() => {
-        throw new Error('DB Error');
-      });
+      mockPickupRequestModel.findById.mockRejectedValue(new Error('DB Error'));
 
       await completePickup(mockReq, mockRes);
 
