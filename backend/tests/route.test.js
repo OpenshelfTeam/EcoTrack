@@ -30,6 +30,8 @@ afterEach(async () => {
   jest.clearAllMocks();
 });
 
+let routeCounter = 0;
+
 const mockReqRes = () => {
   const req = { body: {}, params: {}, query: {}, user: {} };
   const res = {
@@ -52,9 +54,10 @@ const createTestUser = async (role = 'collector') => {
 };
 
 const createTestRoute = async (collector, status = 'pending') => {
+  routeCounter++;
   return await Route.create({
-    routeName: `Route ${Date.now()}`,
-    routeCode: `RC${Date.now()}`,
+    routeName: `Route ${Date.now()}-${routeCounter}`,
+    routeCode: `RC${Date.now()}-${routeCounter}`,
     area: 'Test Area',
     assignedCollector: collector._id,
     scheduledDate: new Date('2025-12-01'),
@@ -221,6 +224,83 @@ describe('Route Controller Tests', () => {
       expect(response.data.routes.length).toBe(10);
       expect(response.data.pagination.totalItems).toBe(15);
     });
+
+    it('should filter by priority', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      
+      const route1 = await createTestRoute(collector);
+      route1.priority = 'high';
+      await route1.save();
+      
+      const route2 = await createTestRoute(collector);
+      route2.priority = 'low';
+      await route2.save();
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { priority: 'high' };
+
+      await getRoutes(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.success).toBe(true);
+      expect(response.data.routes.length).toBe(1);
+      expect(response.data.routes[0].priority).toBe('high');
+    });
+
+    it('should filter by date range', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      
+      const route1 = await createTestRoute(collector);
+      route1.scheduledDate = new Date('2025-01-15');
+      await route1.save();
+      
+      const route2 = await createTestRoute(collector);
+      route2.scheduledDate = new Date('2025-02-15');
+      await route2.save();
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { 
+        startDate: '2025-02-01',
+        endDate: '2025-02-28'
+      };
+
+      await getRoutes(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.success).toBe(true);
+      expect(response.data.routes.length).toBe(1);
+    });
+
+    it('should search routes by name or code', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      
+      const route1 = await Route.create({
+        routeName: 'Morning Collection Route',
+        routeCode: 'MCR001',
+        area: 'Test',
+        assignedCollector: collector._id,
+        scheduledDate: new Date('2025-12-01'),
+        bins: []
+      });
+      
+      const route2 = await createTestRoute(collector);
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { search: 'Morning' };
+
+      await getRoutes(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.success).toBe(true);
+      expect(response.data.routes.length).toBe(1);
+      expect(response.data.routes[0].routeName).toContain('Morning');
+    });
   });
 
   describe('getRoute', () => {
@@ -314,6 +394,36 @@ describe('Route Controller Tests', () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    it('should not delete in-progress route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const route = await createTestRoute(collector, 'in-progress');
+
+      req.params = { id: route._id.toString() };
+
+      await deleteRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      
+      const existingRoute = await Route.findById(route._id);
+      expect(existingRoute).not.toBeNull();
+    });
+
+    it('should not delete completed route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const route = await createTestRoute(collector, 'completed');
+
+      req.params = { id: route._id.toString() };
+
+      await deleteRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      
+      const existingRoute = await Route.findById(route._id);
+      expect(existingRoute).not.toBeNull();
+    });
   });
 
   describe('updateRouteStatus', () => {
@@ -343,6 +453,35 @@ describe('Route Controller Tests', () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    it('should reject invalid status', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const route = await createTestRoute(collector);
+
+      req.params = { id: route._id.toString() };
+      req.body = { status: 'invalid-status' };
+      req.user = { _id: collector._id, role: 'collector' };
+
+      await updateRouteStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should reject unauthorized collector', async () => {
+      const { req, res } = mockReqRes();
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const route = await createTestRoute(collector1);
+
+      req.params = { id: route._id.toString() };
+      req.body = { status: 'in-progress' };
+      req.user = { _id: collector2._id, role: 'collector' };
+
+      await updateRouteStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
   });
 
   describe('startRoute', () => {
@@ -352,10 +491,52 @@ describe('Route Controller Tests', () => {
       const route = await createTestRoute(collector);
 
       req.params = { id: route._id.toString() };
+      req.user = { _id: collector._id, role: 'collector' };
 
       await startRoute(req, res);
 
       expect(res.json).toHaveBeenCalled();
+      const updatedRoute = await Route.findById(route._id);
+      expect(updatedRoute.status).toBe('in-progress');
+    });
+
+    it('should reject unauthorized collector', async () => {
+      const { req, res } = mockReqRes();
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const route = await createTestRoute(collector1);
+
+      req.params = { id: route._id.toString() };
+      req.user = { _id: collector2._id, role: 'collector' };
+
+      await startRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should reject starting completed route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const route = await createTestRoute(collector, 'completed');
+
+      req.params = { id: route._id.toString() };
+      req.user = { _id: collector._id, role: 'collector' };
+
+      await startRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should return 404 for non-existent route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+
+      req.params = { id: '507f1f77bcf86cd799439011' };
+      req.user = { _id: collector._id, role: 'collector' };
+
+      await startRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
     });
   });
 
@@ -363,13 +544,59 @@ describe('Route Controller Tests', () => {
     it('should complete route successfully', async () => {
       const { req, res } = mockReqRes();
       const collector = await createTestUser('collector');
-      const route = await createTestRoute(collector);
+      const route = await createTestRoute(collector, 'in-progress');
 
       req.params = { id: route._id.toString() };
+      req.user = { _id: collector._id, role: 'collector' };
+      req.body = { distance: 10, collectedBins: 5 };
 
       await completeRoute(req, res);
 
       expect(res.json).toHaveBeenCalled();
+      const updatedRoute = await Route.findById(route._id);
+      expect(updatedRoute.status).toBe('completed');
+    });
+
+    it('should reject unauthorized collector', async () => {
+      const { req, res } = mockReqRes();
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const route = await createTestRoute(collector1, 'in-progress');
+
+      req.params = { id: route._id.toString() };
+      req.user = { _id: collector2._id, role: 'collector' };
+      req.body = { distance: 10, collectedBins: 5 };
+
+      await completeRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should reject completing pending route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const route = await createTestRoute(collector, 'pending');
+
+      req.params = { id: route._id.toString() };
+      req.user = { _id: collector._id, role: 'collector' };
+      req.body = { distance: 10, collectedBins: 5 };
+
+      await completeRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should return 404 for non-existent route', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+
+      req.params = { id: '507f1f77bcf86cd799439011' };
+      req.user = { _id: collector._id, role: 'collector' };
+      req.body = { distance: 10, collectedBins: 5 };
+
+      await completeRoute(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
     });
   });
 
@@ -438,26 +665,34 @@ describe('Route Controller Tests', () => {
       expect(route.status).toBe('pending');
     });
 
-    it('should store waypoints', async () => {
+    it('should store bins array', async () => {
       const collector = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      const bin = await SmartBin.create({
+        binId: `BIN-${Date.now()}`,
+        location: {
+          type: 'Point',
+          coordinates: [80.7718, 7.8731]
+        },
+        address: 'Test Address',
+        capacity: 100,
+        currentLevel: 80,
+        type: 'general',
+        status: 'active',
+        createdBy: admin._id
+      });
+
       const route = await Route.create({
-        routeName: 'Waypoint Test',
-        routeCode: 'WPT001',
+        routeName: 'Bins Test',
+        routeCode: `BNT-${Date.now()}`,
         area: 'Test',
         assignedCollector: collector._id,
         scheduledDate: new Date('2025-12-01'),
-        waypoints: [
-          {
-            location: { type: 'Point', coordinates: [80.7718, 7.8731] },
-            order: 1,
-            estimatedArrival: new Date(),
-            action: 'collect'
-          }
-        ]
+        bins: [bin._id]
       });
 
-      expect(route.waypoints).toHaveLength(1);
-      expect(route.waypoints[0].order).toBe(1);
+      expect(Array.isArray(route.bins)).toBe(true);
+      expect(route.bins.length).toBe(1);
     });
   });
 });

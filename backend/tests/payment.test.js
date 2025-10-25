@@ -67,9 +67,8 @@ describe('Payment Controller Tests', () => {
       const { req, res } = mockReqRes();
       const user = await createTestUser('resident');
 
+      req.user = { _id: user._id, role: 'resident' };
       req.body = {
-        transactionId: `TX${Date.now()}`,
-        user: user._id,
         amount: 500,
         paymentType: 'service-charge',
         paymentMethod: 'credit-card'
@@ -87,9 +86,8 @@ describe('Payment Controller Tests', () => {
       const types = ['service-charge', 'penalty', 'installation-fee', 'maintenance-fee'];
 
       for (const type of types) {
+        req.user = { _id: user._id, role: 'resident' };
         req.body = {
-          transactionId: `TX${Date.now()}${Math.random()}`,
-          user: user._id,
           amount: 100,
           paymentType: type,
           paymentMethod: 'credit-card'
@@ -109,9 +107,8 @@ describe('Payment Controller Tests', () => {
       const methods = ['credit-card', 'debit-card', 'bank-transfer', 'mobile-payment', 'cash'];
 
       for (const method of methods) {
+        req.user = { _id: user._id, role: 'resident' };
         req.body = {
-          transactionId: `TX${Date.now()}${Math.random()}`,
-          user: user._id,
           amount: 100,
           paymentType: 'service-charge',
           paymentMethod: method
@@ -190,6 +187,239 @@ describe('Payment Controller Tests', () => {
       await getPayments(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should filter by multiple statuses', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await createTestPayment(user, 'completed');
+      await createTestPayment(user, 'pending');
+      await createTestPayment(user, 'failed');
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { status: 'completed,pending' };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(2);
+    });
+
+    it('should filter by payment type', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await Payment.create({
+        transactionId: `TX${Date.now()}-1`,
+        user: user._id,
+        amount: 100,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-2`,
+        user: user._id,
+        amount: 200,
+        paymentType: 'penalty',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { paymentType: 'service-charge' };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(1);
+      expect(data[0].paymentType).toBe('service-charge');
+    });
+
+    it('should filter by multiple payment types', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await Payment.create({
+        transactionId: `TX${Date.now()}-1`,
+        user: user._id,
+        amount: 100,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-2`,
+        user: user._id,
+        amount: 200,
+        paymentType: 'penalty',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-3`,
+        user: user._id,
+        amount: 300,
+        paymentType: 'installation-fee',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { paymentType: 'service-charge,penalty' };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(2);
+    });
+
+    it('should filter by payment method', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await Payment.create({
+        transactionId: `TX${Date.now()}-1`,
+        user: user._id,
+        amount: 100,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-2`,
+        user: user._id,
+        amount: 200,
+        paymentType: 'service-charge',
+        paymentMethod: 'mobile-payment',
+        status: 'completed'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { paymentMethod: 'credit-card' };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(1);
+      expect(data[0].paymentMethod).toBe('credit-card');
+    });
+
+    it('should filter by date range', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      const oldPayment = await Payment.create({
+        transactionId: `TX${Date.now()}-1`,
+        user: user._id,
+        amount: 100,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed',
+        createdAt: new Date('2024-01-15')
+      });
+      
+      await Payment.create({
+        transactionId: `TX${Date.now()}-2`,
+        user: user._id,
+        amount: 200,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed',
+        createdAt: new Date('2025-02-15')
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { 
+        startDate: '2025-01-01',
+        endDate: '2025-12-31'
+      };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(1);
+    });
+
+    it('should filter by amount range', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await Payment.create({
+        transactionId: `TX${Date.now()}-1`,
+        user: user._id,
+        amount: 500,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-2`,
+        user: user._id,
+        amount: 1500,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await Payment.create({
+        transactionId: `TX${Date.now()}-3`,
+        user: user._id,
+        amount: 2500,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { 
+        minAmount: '1000',
+        maxAmount: '2000'
+      };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(1);
+      expect(data[0].amount).toBe(1500);
+    });
+
+    it('should search by transaction ID', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const user = await createTestUser('resident');
+
+      await Payment.create({
+        transactionId: 'SPECIAL-TX-12345',
+        user: user._id,
+        amount: 100,
+        paymentType: 'service-charge',
+        paymentMethod: 'credit-card',
+        status: 'completed'
+      });
+      await createTestPayment(user);
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { search: 'SPECIAL' };
+
+      await getPayments(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const data = res.json.mock.calls[0][0].data;
+      expect(data.length).toBe(1);
+      expect(data[0].transactionId).toContain('SPECIAL');
     });
   });
 

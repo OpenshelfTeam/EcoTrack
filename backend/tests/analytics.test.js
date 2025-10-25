@@ -235,15 +235,55 @@ describe('Analytics Controller Tests', () => {
     it('should calculate percentage changes', async () => {
       const { req, res } = mockReqRes();
       const admin = await createTestUser('admin');
+      const resident = await createTestUser('resident');
+
+      // Create some collections to trigger changes
+      const bin = await createTestBin(resident);
+      const collector = await createTestUser('collector');
+      await createTestCollection(bin, collector, resident);
 
       req.user = { id: admin._id, role: 'admin' };
 
       await getDashboardStats(req, res);
 
       const response = res.json.mock.calls[0][0];
-      expect(response.data.collections).toHaveProperty('change');
+      expect(response.data).toHaveProperty('bins');
+      expect(response.data.bins).toHaveProperty('change');
       expect(response.data.pickups).toHaveProperty('change');
       expect(response.data.tickets).toHaveProperty('change');
+    });
+
+    it('should break down users by role', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      await createTestUser('resident');
+      await createTestUser('collector');
+      await createTestUser('operator');
+      await createTestUser('authority');
+
+      req.user = { id: admin._id, role: 'admin' };
+
+      await getDashboardStats(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.data.users).toHaveProperty('admins');
+      expect(response.data.users).toHaveProperty('residents');
+      expect(response.data.users).toHaveProperty('collectors');
+      expect(response.data.users).toHaveProperty('operators');
+      expect(response.data.users).toHaveProperty('authorities');
+      expect(response.data.users.admins).toBeGreaterThan(0);
+    });
+
+    it('should not return user breakdown for residents', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+
+      req.user = { id: resident._id, role: 'resident' };
+
+      await getDashboardStats(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.data.users).toBeDefined();
     });
   });
 

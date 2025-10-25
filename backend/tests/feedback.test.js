@@ -321,6 +321,34 @@ describe('Feedback Controller Tests', () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    it('should allow admin to view any feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      const feedback = await createTestFeedback(user);
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: admin._id, role: 'admin' };
+
+      await getFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should reject unauthorized resident viewing others feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user1 = await createTestUser('resident');
+      const user2 = await createTestUser('resident');
+      const feedback = await createTestFeedback(user1);
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: user2._id, role: 'resident' };
+
+      await getFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
   });
 
   describe('updateFeedback', () => {
@@ -357,6 +385,37 @@ describe('Feedback Controller Tests', () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
     });
+
+    it('should reject unauthorized user updating feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user1 = await createTestUser('resident');
+      const user2 = await createTestUser('resident');
+      const feedback = await createTestFeedback(user1);
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: user2._id };
+      req.body = { subject: 'Hacked' };
+
+      await updateFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should reject updating reviewed feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user = await createTestUser('resident');
+      const feedback = await createTestFeedback(user);
+      feedback.status = 'resolved';
+      await feedback.save();
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: user._id };
+      req.body = { subject: 'Try to update' };
+
+      await updateFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
   });
 
   describe('deleteFeedback', () => {
@@ -386,6 +445,34 @@ describe('Feedback Controller Tests', () => {
       await deleteFeedback(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('should allow admin to delete any feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      const feedback = await createTestFeedback(user);
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: admin._id, role: 'admin' };
+
+      await deleteFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should reject unauthorized user deleting feedback', async () => {
+      const { req, res } = mockReqRes();
+      const user1 = await createTestUser('resident');
+      const user2 = await createTestUser('resident');
+      const feedback = await createTestFeedback(user1);
+
+      req.params = { id: feedback._id.toString() };
+      req.user = { _id: user2._id, role: 'resident' };
+
+      await deleteFeedback(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
     });
   });
 

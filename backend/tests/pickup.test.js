@@ -401,6 +401,183 @@ describe('Pickup Controller Tests', () => {
       expect(response.total).toBe(15);
       expect(response.pages).toBe(2);
     });
+
+    it('should get pickups for collector (assigned + approved)', async () => {
+      const { req, res } = mockReqRes();
+      const collector = await createTestUser('collector');
+      const resident = await createTestUser('resident');
+      
+      // Assigned to collector
+      const assigned = await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Assigned pickup',
+        quantity: { value: 5, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '123 Test St'
+        },
+        preferredDate: new Date('2025-12-01'),
+        timeSlot: 'morning',
+        status: 'assigned',
+        assignedCollector: collector._id
+      });
+      
+      // Approved but not assigned
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Approved pickup',
+        quantity: { value: 3, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '456 Test Ave'
+        },
+        preferredDate: new Date('2025-12-02'),
+        timeSlot: 'afternoon',
+        status: 'approved'
+      });
+
+      req.user = { _id: collector._id, role: 'collector' };
+      req.query = {};
+
+      await getPickupRequests(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(2);
+    });
+
+    it('should filter by priority', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const resident = await createTestUser('resident');
+      
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'hazardous',
+        description: 'Urgent pickup',
+        quantity: { value: 5, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '123 Test St'
+        },
+        preferredDate: new Date('2025-12-01'),
+        timeSlot: 'morning',
+        priority: 'urgent'
+      });
+      
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Normal pickup',
+        quantity: { value: 3, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '456 Test Ave'
+        },
+        preferredDate: new Date('2025-12-02'),
+        timeSlot: 'afternoon',
+        priority: 'normal'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { priority: 'urgent' };
+
+      await getPickupRequests(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+      expect(response.data[0].priority).toBe('urgent');
+    });
+
+    it('should filter by date range', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const resident = await createTestUser('resident');
+      
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Early pickup',
+        quantity: { value: 5, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '123 Test St'
+        },
+        preferredDate: new Date('2025-01-15'),
+        timeSlot: 'morning'
+      });
+      
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Late pickup',
+        quantity: { value: 3, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '456 Test Ave'
+        },
+        preferredDate: new Date('2025-12-15'),
+        timeSlot: 'afternoon'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { 
+        startDate: '2025-12-01',
+        endDate: '2025-12-31'
+      };
+
+      await getPickupRequests(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+    });
+
+    it('should search by requestId or description', async () => {
+      const { req, res } = mockReqRes();
+      const admin = await createTestUser('admin');
+      const resident = await createTestUser('resident');
+      
+      await PickupRequest.create({
+        requestId: 'SPECIAL-REQ-123',
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Special electronics pickup',
+        quantity: { value: 5, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '123 Test St'
+        },
+        preferredDate: new Date('2025-12-01'),
+        timeSlot: 'morning'
+      });
+      
+      await PickupRequest.create({
+        requestedBy: resident._id,
+        wasteType: 'bulk',
+        description: 'Regular pickup',
+        quantity: { value: 3, unit: 'items' },
+        pickupLocation: {
+          coordinates: [80.7718, 7.8731],
+          address: '456 Test Ave'
+        },
+        preferredDate: new Date('2025-12-02'),
+        timeSlot: 'afternoon'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { search: 'SPECIAL' };
+
+      await getPickupRequests(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+      expect(response.data[0].requestId).toContain('SPECIAL');
+    });
   });
 
   describe('getPickupRequest - Single Pickup', () => {

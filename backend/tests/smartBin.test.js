@@ -254,6 +254,125 @@ describe('SmartBin Controller Tests', () => {
       expect(response.count).toBe(10);
       expect(response.total).toBe(15);
     });
+
+    it('should return map view with all bins', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      
+      await createTestBin(resident, operator);
+      await createTestBin(resident, operator);
+      await createTestBin(resident, operator);
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { view: 'map' };
+
+      await getSmartBins(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(3);
+      expect(response.data[0]).toHaveProperty('location');
+    });
+
+    it('should filter by multiple statuses', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      
+      await createTestBin(resident, operator, 'general', 'active');
+      await createTestBin(resident, operator, 'general', 'maintenance');
+      await createTestBin(resident, operator, 'general', 'inactive');
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { status: 'active,maintenance' };
+
+      await getSmartBins(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(2);
+    });
+
+    it('should filter by multiple bin types', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      
+      await createTestBin(resident, operator, 'general');
+      await createTestBin(resident, operator, 'recyclable');
+      await createTestBin(resident, operator, 'organic');
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { binType: 'general,recyclable' };
+
+      await getSmartBins(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(2);
+    });
+
+    it('should filter by level range', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      
+      const bin1 = await createTestBin(resident, operator);
+      bin1.currentLevel = 30;
+      await bin1.save();
+
+      const bin2 = await createTestBin(resident, operator);
+      bin2.currentLevel = 70;
+      await bin2.save();
+
+      const bin3 = await createTestBin(resident, operator);
+      bin3.currentLevel = 90;
+      await bin3.save();
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { minLevel: '50', maxLevel: '80' };
+
+      await getSmartBins(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+      expect(response.data[0].currentLevel).toBe(70);
+    });
+
+    it('should search bins by binId or address', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident = await createTestUser('resident');
+      const admin = await createTestUser('admin');
+      
+      await SmartBin.create({
+        binId: 'SPECIAL-BIN-123',
+        location: {
+          type: 'Point',
+          coordinates: [80.7718, 7.8731],
+          address: '123 Main Street'
+        },
+        capacity: 100,
+        currentLevel: 50,
+        binType: 'general',
+        status: 'active',
+        createdBy: operator._id
+      });
+      
+      await createTestBin(resident, operator);
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.query = { search: 'SPECIAL' };
+
+      await getSmartBins(req, res);
+
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+      expect(response.data[0].binId).toContain('SPECIAL');
+    });
   });
 
   describe('getSmartBin - Single Retrieval', () => {
