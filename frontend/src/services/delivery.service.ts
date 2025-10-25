@@ -44,5 +44,10 @@ export const deliveryService = {
   async confirmReceipt(deliveryId: string) {
     const response = await api.post(`/deliveries/${deliveryId}/confirm`);
     return response.data;
+  },
+
+  async reassignCollector(deliveryId: string, data: { collectorId: string }) {
+    const response = await api.patch(`/deliveries/${deliveryId}/reassign`, data);
+    return response.data;
   }
 };

@@ -296,6 +296,97 @@ describe('Bin Request Controller Tests', () => {
       const updatedRequest = await BinRequest.findById(binRequest._id);
       expect(updatedRequest.paymentVerified).toBe(true);
     });
+
+    it('should assign collector when approving bin request', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      
+      // Create a pending bin request
+      const binRequest = await BinRequest.create({
+        resident: resident._id,
+        requestedBinType: 'general',
+        address: '123 Test St',
+        coordinates: { lat: 7.8731, lng: 80.7718 },
+        status: 'pending'
+      });
+
+      req.params = { requestId: binRequest._id.toString() };
+      req.body = {
+        deliveryDate: new Date('2025-12-01'),
+        collectorId: collector._id.toString()
+      };
+
+      await approveAndAssignRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+
+      // Verify delivery has assigned collector
+      const delivery = await Delivery.findOne({ resident: resident._id });
+      expect(delivery.deliveryTeam.toString()).toBe(collector._id.toString());
+
+      // Verify notification was created for collector
+      const collectorNotifications = await Notification.find({ recipient: collector._id });
+      expect(collectorNotifications.length).toBeGreaterThan(0);
+      expect(collectorNotifications[0].title).toContain('Delivery Assignment');
+    });
+
+    it('should return 404 if collector not found', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      
+      const binRequest = await BinRequest.create({
+        resident: resident._id,
+        requestedBinType: 'general',
+        address: '123 Test St',
+        status: 'pending'
+      });
+
+      req.params = { requestId: binRequest._id.toString() };
+      req.body = {
+        deliveryDate: new Date('2025-12-01'),
+        collectorId: new mongoose.Types.ObjectId().toString()
+      };
+
+      await approveAndAssignRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Collector not found'
+        })
+      );
+    });
+
+    it('should return 400 if assigned user is not a collector', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const operator = await createTestUser('operator');
+      
+      const binRequest = await BinRequest.create({
+        resident: resident._id,
+        requestedBinType: 'general',
+        address: '123 Test St',
+        status: 'pending'
+      });
+
+      req.params = { requestId: binRequest._id.toString() };
+      req.body = {
+        deliveryDate: new Date('2025-12-01'),
+        collectorId: operator._id.toString()
+      };
+
+      await approveAndAssignRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Assigned user must be a collector'
+        })
+      );
+    });
   });
 
   describe('getRequests', () => {

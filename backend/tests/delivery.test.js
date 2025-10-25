@@ -11,7 +11,8 @@ import {
   createDelivery,
   updateDeliveryStatus,
   confirmReceipt,
-  getDeliveries
+  getDeliveries,
+  reassignCollector
 } from '../controllers/delivery.controller.js';
 
 // Setup and teardown
@@ -505,6 +506,40 @@ describe('Delivery Controller Tests', () => {
       expect(response.count).toBe(1);
     });
 
+    it('should get only assigned deliveries for collector', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const resident1 = await createTestUser('resident');
+      const resident2 = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const bin1 = await createTestBin(resident1, operator);
+      const bin2 = await createTestBin(resident2, operator);
+      
+      await Delivery.create({
+        bin: bin1._id,
+        resident: resident1._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date()
+      });
+      
+      await Delivery.create({
+        bin: bin2._id,
+        resident: resident2._id,
+        deliveryTeam: collector2._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: collector1._id, role: 'collector' };
+
+      await getDeliveries(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const response = res.json.mock.calls[0][0];
+      expect(response.count).toBe(1);
+      expect(response.data[0].deliveryTeam.toString()).toBe(collector1._id.toString());
+    });
+
     it('should return empty array when no deliveries exist', async () => {
       const { req, res } = mockReqRes();
       const resident = await createTestUser('resident');
@@ -635,6 +670,349 @@ describe('Delivery Controller Tests', () => {
       const smartBin = await SmartBin.findById(finalBinRequest.assignedBin);
       expect(smartBin.binType).toBe('hazardous');
       expect(smartBin.status).toBe('active');
+    });
+  });
+
+  describe('Collector Authorization Tests', () => {
+    it('should allow assigned collector to update delivery status', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector._id,
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: collector._id, role: 'collector' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { status: 'in-transit' };
+
+      await updateDeliveryStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      
+      const updatedDelivery = await Delivery.findById(delivery._id);
+      expect(updatedDelivery.status).toBe('in-transit');
+    });
+
+    it('should reject non-assigned collector from updating delivery', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: collector2._id, role: 'collector' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { status: 'in-transit' };
+
+      await updateDeliveryStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Only the assigned collector can update this delivery'
+        })
+      );
+    });
+
+    it('should allow admin to update any delivery', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector._id,
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { status: 'in-transit' };
+
+      await updateDeliveryStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should allow operator to update any delivery', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      const operator = await createTestUser('operator');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector._id,
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: operator._id, role: 'operator' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { status: 'in-transit' };
+
+      await updateDeliveryStatus(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should allow delivery update when no collector assigned', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: null, // No collector assigned
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: collector._id, role: 'collector' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { status: 'in-transit' };
+
+      await updateDeliveryStatus(req, res);
+
+      // Should fail because collector is not assigned
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+  });
+
+  describe('Reassign Collector Tests', () => {
+    it('should reassign collector successfully', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const operator = await createTestUser('operator');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date(),
+        status: 'scheduled'
+      });
+
+      req.user = { _id: operator._id, role: 'operator' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: collector2._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      
+      const updatedDelivery = await Delivery.findById(delivery._id);
+      expect(updatedDelivery.deliveryTeam.toString()).toBe(collector2._id.toString());
+      
+      // Verify notifications were created
+      const newCollectorNotif = await Notification.findOne({ recipient: collector2._id });
+      expect(newCollectorNotif).toBeTruthy();
+      expect(newCollectorNotif.title).toContain('Delivery Assignment');
+      
+      const oldCollectorNotif = await Notification.findOne({ recipient: collector1._id });
+      expect(oldCollectorNotif).toBeTruthy();
+      expect(oldCollectorNotif.title).toContain('Delivery Reassigned');
+    });
+
+    it('should allow admin to reassign collector', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      const admin = await createTestUser('admin');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: admin._id, role: 'admin' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: collector2._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('should reject collector from reassigning', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: collector1._id, role: 'collector' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: collector2._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Only operators and admins can reassign deliveries'
+        })
+      );
+    });
+
+    it('should reject resident from reassigning', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const collector2 = await createTestUser('collector');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: resident._id, role: 'resident' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: collector2._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    it('should return 404 for non-existent delivery', async () => {
+      const { req, res } = mockReqRes();
+      const operator = await createTestUser('operator');
+      const collector = await createTestUser('collector');
+
+      req.user = { _id: operator._id, role: 'operator' };
+      req.params = { id: new mongoose.Types.ObjectId().toString() };
+      req.body = { collectorId: collector._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Delivery not found'
+        })
+      );
+    });
+
+    it('should return 404 for non-existent collector', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector1 = await createTestUser('collector');
+      const operator = await createTestUser('operator');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector1._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: operator._id, role: 'operator' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: new mongoose.Types.ObjectId().toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'Collector not found'
+        })
+      );
+    });
+
+    it('should return 400 when assigning non-collector user', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      const operator1 = await createTestUser('operator');
+      const operator2 = await createTestUser('operator');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: collector._id,
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: operator1._id, role: 'operator' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: operator2._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          message: 'User must be a collector'
+        })
+      );
+    });
+
+    it('should handle reassignment when no previous collector', async () => {
+      const { req, res } = mockReqRes();
+      const resident = await createTestUser('resident');
+      const collector = await createTestUser('collector');
+      const operator = await createTestUser('operator');
+      
+      const delivery = await Delivery.create({
+        bin: null,
+        resident: resident._id,
+        deliveryTeam: null, // No previous collector
+        scheduledDate: new Date()
+      });
+
+      req.user = { _id: operator._id, role: 'operator' };
+      req.params = { id: delivery._id.toString() };
+      req.body = { collectorId: collector._id.toString() };
+
+      await reassignCollector(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      
+      const updatedDelivery = await Delivery.findById(delivery._id);
+      expect(updatedDelivery.deliveryTeam.toString()).toBe(collector._id.toString());
+      
+      // Should only create notification for new collector, not old one
+      const notifications = await Notification.find();
+      expect(notifications.length).toBe(1);
+      expect(notifications[0].recipient.toString()).toBe(collector._id.toString());
     });
   });
 });

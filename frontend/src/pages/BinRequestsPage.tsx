@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { Package, Plus, CheckCircle, XCircle, Clock, Navigation, Map, Loader2, X, Trash2, Calendar, MapPin, FileText } from 'lucide-react';
+import { Package, Plus, CheckCircle, XCircle, Clock, Navigation, Map, Loader2, X, Trash2, Calendar, MapPin, FileText, User } from 'lucide-react';
 import { binRequestService, type BinRequest } from '../services/binRequest.service';
+import { userService } from '../services/user.service';
 import { useAuth } from '../contexts/AuthContext';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -43,6 +44,13 @@ export const BinRequestsPage = () => {
     queryFn: () => binRequestService.getRequests()
   });
 
+  // Fetch collectors for assignment
+  const { data: usersData } = useQuery({
+    queryKey: ['users', 'collector'],
+    queryFn: () => userService.getAllUsers({ role: 'collector' }),
+    enabled: user?.role === 'operator' || user?.role === 'admin'
+  });
+
   const createMutation = useMutation({
     mutationFn: binRequestService.createRequest,
     onSuccess: () => {
@@ -77,10 +85,12 @@ export const BinRequestsPage = () => {
     e.preventDefault();
     if (!selectedRequest) return;
     const formData = new FormData(e.currentTarget);
+    const collectorId = formData.get('collectorId') as string;
     approveMutation.mutate({
       requestId: selectedRequest._id,
       data: {
-        deliveryDate: formData.get('deliveryDate') as string
+        deliveryDate: formData.get('deliveryDate') as string,
+        ...(collectorId && { collectorId })
       }
     });
   };
@@ -211,6 +221,7 @@ export const BinRequestsPage = () => {
   };
 
   const requests = requestsData?.data || [];
+  const collectors = usersData?.data || [];
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -556,6 +567,26 @@ export const BinRequestsPage = () => {
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                     />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Assign Collector (Optional)
+                    </label>
+                    <select
+                      name="collectorId"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white"
+                    >
+                      <option value="">-- No collector assigned --</option>
+                      {collectors.map((collector: { _id: string; firstName: string; lastName: string; email: string }) => (
+                        <option key={collector._id} value={collector._id}>
+                          {collector.firstName} {collector.lastName} ({collector.email})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Select a collector to assign this delivery. Leave empty to assign later.
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-3 mt-6">
