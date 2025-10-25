@@ -20,6 +20,7 @@ import { UsersPage } from './pages/UsersPage';
 import { MapPage } from './pages/MapPage';
 import { BinRequestsPage } from './pages/BinRequestsPage';
 import { DeliveriesPage } from './pages/DeliveriesPage';
+import { CollectorDeliveriesPage } from './pages/CollectorDeliveriesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -164,6 +165,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DeliveriesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-deliveries"
+              element={
+                <ProtectedRoute allowedRoles={['collector']}>
+                  <CollectorDeliveriesPage />
                 </ProtectedRoute>
               }
             />

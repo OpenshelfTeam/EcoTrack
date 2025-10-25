@@ -1,9 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { Package, Plus, CheckCircle, XCircle, Clock, Navigation, Map, Loader2, X, Trash2, Calendar, MapPin, FileText } from 'lucide-react';
+import { Package, Plus, CheckCircle, XCircle, Clock, Navigation, Map, Loader2, X, Trash2, Calendar, MapPin, FileText, User } from 'lucide-react';
 import { binRequestService, type BinRequest } from '../services/binRequest.service';
+import { userService } from '../services/user.service';
 import { useAuth } from '../contexts/AuthContext';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 export const BinRequestsPage = () => {
   const { user } = useAuth();
@@ -11,16 +23,32 @@ export const BinRequestsPage = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<BinRequest | null>(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
   
   // Location handling state
   const [gettingLocation, setGettingLocation] = useState(false);
   const [requestCoordinates, setRequestCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [requestAddress, setRequestAddress] = useState('');
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [tempMapCoordinates, setTempMapCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Scroll to top when modal opens
+  useEffect(() => {
+    if (showCreateModal) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [showCreateModal]);
 
   const { data: requestsData, isLoading } = useQuery({
     queryKey: ['binRequests'],
     queryFn: () => binRequestService.getRequests()
+  });
+
+  // Fetch collectors for assignment
+  const { data: usersData } = useQuery({
+    queryKey: ['users', 'collector'],
+    queryFn: () => userService.getAllUsers({ role: 'collector' }),
+    enabled: user?.role === 'operator' || user?.role === 'admin'
   });
 
   const createMutation = useMutation({
@@ -57,10 +85,12 @@ export const BinRequestsPage = () => {
     e.preventDefault();
     if (!selectedRequest) return;
     const formData = new FormData(e.currentTarget);
+    const collectorId = formData.get('collectorId') as string;
     approveMutation.mutate({
       requestId: selectedRequest._id,
       data: {
-        deliveryDate: formData.get('deliveryDate') as string
+        deliveryDate: formData.get('deliveryDate') as string,
+        ...(collectorId && { collectorId })
       }
     });
   };
@@ -145,7 +175,53 @@ export const BinRequestsPage = () => {
     );
   };
 
+  const openMapPicker = () => {
+    setTempMapCoordinates(requestCoordinates || { lat: 6.9271, lng: 79.8612 }); // Default to Colombo
+    setShowMapPicker(true);
+  };
+
+  const confirmMapLocation = async () => {
+    if (tempMapCoordinates) {
+      setRequestCoordinates(tempMapCoordinates);
+      
+      // Reverse geocode to get address
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${tempMapCoordinates.lat}&lon=${tempMapCoordinates.lng}`,
+          {
+            headers: {
+              'Accept-Language': 'en'
+            }
+          }
+        );
+        const data = await response.json();
+        
+        if (data.display_name) {
+          setRequestAddress(data.display_name);
+        } else {
+          setRequestAddress(`Location: ${tempMapCoordinates.lat.toFixed(6)}, ${tempMapCoordinates.lng.toFixed(6)}`);
+        }
+      } catch (error) {
+        console.error('Error getting address:', error);
+        setRequestAddress(`Location: ${tempMapCoordinates.lat.toFixed(6)}, ${tempMapCoordinates.lng.toFixed(6)}`);
+      }
+      
+      setShowMapPicker(false);
+    }
+  };
+
+  // Component for handling map clicks
+  const MapClickHandler = () => {
+    useMapEvents({
+      click: (e) => {
+        setTempMapCoordinates({ lat: e.latlng.lat, lng: e.latlng.lng });
+      },
+    });
+    return null;
+  };
+
   const requests = requestsData?.data || [];
+  const collectors = usersData?.data || [];
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -248,36 +324,43 @@ export const BinRequestsPage = () => {
 
         {/* Create Request Modal */}
         {showCreateModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl my-8 transform transition-all animate-fadeIn">
-              {/* Modal Header */}
-              <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6 rounded-t-3xl">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
-                      <Package className="w-8 h-8 text-white" />
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 overflow-y-auto" onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowCreateModal(false);
+              setRequestAddress('');
+              setRequestCoordinates(null);
+            }
+          }}>
+            <div className="min-h-screen py-6 px-4 flex justify-center">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl my-auto transform transition-all animate-fadeIn">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-8 py-6 rounded-t-3xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl">
+                        <Package className="w-8 h-8 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-white">Request Smart Bin</h2>
+                        <p className="text-emerald-50 text-sm mt-1">Fill in the details to request a new bin</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-white">Request Smart Bin</h2>
-                      <p className="text-emerald-50 text-sm mt-1">Fill in the details to request a new bin</p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCreateModal(false);
+                        setRequestAddress('');
+                        setRequestCoordinates(null);
+                      }}
+                      className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                    >
+                      <X className="w-6 h-6 text-white" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowCreateModal(false);
-                      setRequestAddress('');
-                      setRequestCoordinates(null);
-                    }}
-                    className="p-2 hover:bg-white/20 rounded-xl transition-colors"
-                  >
-                    <X className="w-6 h-6 text-white" />
-                  </button>
                 </div>
-              </div>
 
-              {/* Modal Body */}
-              <form onSubmit={handleCreateRequest} className="p-8">
+                {/* Modal Body */}
+                <form onSubmit={handleCreateRequest} className="p-8">
                 <div className="space-y-6">
                   {/* Bin Type */}
                   <div>
@@ -348,7 +431,7 @@ export const BinRequestsPage = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => alert('Map picker coming soon!')}
+                          onClick={openMapPicker}
                           className="flex-1 px-5 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl hover:from-purple-600 hover:to-pink-700 transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl font-semibold transform hover:scale-105"
                           title="Select location on map"
                         >
@@ -448,6 +531,7 @@ export const BinRequestsPage = () => {
                   </button>
                 </div>
               </form>
+              </div>
             </div>
           </div>
         )}
@@ -484,6 +568,26 @@ export const BinRequestsPage = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Assign Collector (Optional)
+                    </label>
+                    <select
+                      name="collectorId"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white"
+                    >
+                      <option value="">-- No collector assigned --</option>
+                      {collectors.map((collector: { _id: string; firstName: string; lastName: string; email: string }) => (
+                        <option key={collector._id} value={collector._id}>
+                          {collector.firstName} {collector.lastName} ({collector.email})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Select a collector to assign this delivery. Leave empty to assign later.
+                    </p>
+                  </div>
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button
@@ -505,6 +609,82 @@ export const BinRequestsPage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Map Picker Modal */}
+        {showMapPicker && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden">
+              {/* Map Picker Header */}
+              <div className="bg-gradient-to-r from-purple-500 to-pink-600 px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white/20 backdrop-blur-sm rounded-xl">
+                    <MapPin className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Pick Delivery Location</h2>
+                    <p className="text-purple-50 text-sm">Click on the map to select your location</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(false)}
+                  className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5 text-white" />
+                </button>
+              </div>
+
+              {/* Map Container */}
+              <div className="flex-1 relative">
+                <MapContainer
+                  center={[tempMapCoordinates?.lat || 6.9271, tempMapCoordinates?.lng || 79.8612]}
+                  zoom={13}
+                  style={{ height: '100%', width: '100%' }}
+                  scrollWheelZoom={true}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <MapClickHandler />
+                  {tempMapCoordinates && (
+                    <Marker position={[tempMapCoordinates.lat, tempMapCoordinates.lng]} />
+                  )}
+                </MapContainer>
+
+                {/* Coordinates Display */}
+                {tempMapCoordinates && (
+                  <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm px-4 py-3 rounded-xl shadow-lg z-[1000]">
+                    <p className="text-sm font-semibold text-gray-800">Selected Location</p>
+                    <p className="text-xs text-gray-600 font-mono mt-1">
+                      📍 {tempMapCoordinates.lat.toFixed(6)}, {tempMapCoordinates.lng.toFixed(6)}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Map Picker Footer */}
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowMapPicker(false)}
+                  className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 font-semibold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmMapLocation}
+                  disabled={!tempMapCoordinates}
+                  className="flex-1 bg-gradient-to-r from-purple-500 to-pink-600 text-white px-6 py-3 rounded-xl hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  Confirm Location
+                </button>
+              </div>
             </div>
           </div>
         )}

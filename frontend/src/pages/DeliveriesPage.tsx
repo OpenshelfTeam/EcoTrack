@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
-import { Truck, Package, Calendar, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Truck, Package, Calendar, CheckCircle, Clock, XCircle, Users } from 'lucide-react';
 import { deliveryService, type Delivery } from '../services/delivery.service';
+import { userService, type User } from '../services/user.service';
 import { useAuth } from '../contexts/AuthContext';
 
 export const DeliveriesPage = () => {
@@ -10,10 +11,18 @@ export const DeliveriesPage = () => {
   const queryClient = useQueryClient();
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
 
   const { data: deliveriesData, isLoading } = useQuery({
     queryKey: ['deliveries'],
     queryFn: () => deliveryService.getDeliveries()
+  });
+
+  // Fetch collectors for reassignment
+  const { data: usersData } = useQuery({
+    queryKey: ['users', 'collector'],
+    queryFn: () => userService.getAllUsers({ role: 'collector' }),
+    enabled: user?.role === 'operator' || user?.role === 'admin'
   });
 
   const updateStatusMutation = useMutation({
@@ -33,6 +42,16 @@ export const DeliveriesPage = () => {
     }
   });
 
+  const reassignMutation = useMutation({
+    mutationFn: ({ deliveryId, collectorId }: { deliveryId: string; collectorId: string }) =>
+      deliveryService.reassignCollector(deliveryId, { collectorId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      setShowReassignModal(false);
+      setSelectedDelivery(null);
+    }
+  });
+
   const handleUpdateStatus = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedDelivery) return;
@@ -46,7 +65,18 @@ export const DeliveriesPage = () => {
     });
   };
 
+  const handleReassign = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedDelivery) return;
+    const formData = new FormData(e.currentTarget);
+    reassignMutation.mutate({
+      deliveryId: selectedDelivery._id,
+      collectorId: formData.get('collectorId') as string
+    });
+  };
+
   const deliveries = deliveriesData?.data || [];
+  const collectors = usersData?.data || [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -145,6 +175,20 @@ export const DeliveriesPage = () => {
                       </p>
                     </div>
                   </div>
+                  <div className="flex items-start gap-2">
+                    <Users className="w-5 h-5 text-gray-400 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">Assigned Collector</p>
+                      <p className="text-sm text-gray-600">
+                        {delivery.deliveryTeam 
+                          ? `${delivery.deliveryTeam.firstName} ${delivery.deliveryTeam.lastName}`
+                          : 'Not assigned'}
+                      </p>
+                      {delivery.deliveryTeam && (
+                        <p className="text-xs text-gray-500">{delivery.deliveryTeam.email}</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {delivery.attempts && delivery.attempts.length > 0 && (
@@ -164,10 +208,8 @@ export const DeliveriesPage = () => {
                 )}
 
                 <div className="flex gap-3 mt-4">
-                  {(user?.role === 'operator' ||
-                    user?.role === 'admin' ||
-                    user?.role === 'collector') &&
-                    delivery.status !== 'delivered' && (
+                  {(user?.role === 'operator' || user?.role === 'admin') && delivery.status !== 'delivered' && (
+                    <>
                       <button
                         onClick={() => {
                           setSelectedDelivery(delivery);
@@ -177,7 +219,28 @@ export const DeliveriesPage = () => {
                       >
                         Update Status
                       </button>
-                    )}
+                      <button
+                        onClick={() => {
+                          setSelectedDelivery(delivery);
+                          setShowReassignModal(true);
+                        }}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+                      >
+                        Reassign Collector
+                      </button>
+                    </>
+                  )}
+                  {user?.role === 'collector' && delivery.status !== 'delivered' && (
+                    <button
+                      onClick={() => {
+                        setSelectedDelivery(delivery);
+                        setShowStatusModal(true);
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                    >
+                      Update Status
+                    </button>
+                  )}
                   {user?.role === 'resident' && delivery.status === 'in-transit' && (
                     <button
                       onClick={() => confirmReceiptMutation.mutate(delivery._id)}
@@ -261,6 +324,63 @@ export const DeliveriesPage = () => {
                     className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
                     {updateStatusMutation.isPending ? 'Updating...' : 'Update Status'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Reassign Collector Modal */}
+        {showReassignModal && selectedDelivery && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-md">
+              <h2 className="text-2xl font-bold mb-4">Reassign Collector</h2>
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Delivery: {selectedDelivery.deliveryId}</p>
+                <p className="text-sm text-gray-600">
+                  Current Collector: {selectedDelivery.deliveryTeam 
+                    ? `${selectedDelivery.deliveryTeam.firstName} ${selectedDelivery.deliveryTeam.lastName}`
+                    : 'Not assigned'}
+                </p>
+              </div>
+              <form onSubmit={handleReassign}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Select New Collector
+                    </label>
+                    <select
+                      name="collectorId"
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                    >
+                      <option value="">-- Select a collector --</option>
+                      {collectors.map((collector: User) => (
+                        <option key={collector._id} value={collector._id}>
+                          {collector.firstName} {collector.lastName} ({collector.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowReassignModal(false);
+                      setSelectedDelivery(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={reassignMutation.isPending}
+                    className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {reassignMutation.isPending ? 'Reassigning...' : 'Reassign'}
                   </button>
                 </div>
               </form>

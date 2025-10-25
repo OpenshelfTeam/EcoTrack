@@ -51,12 +51,13 @@ export const createBinRequest = async (req, res) => {
 export const approveAndAssignRequest = async (req, res) => {
   try {
     const { requestId } = req.params; // BinRequest ID
-    const { binId, deliveryDate } = req.body; // SmartBin _id or binId
+    const { binId, deliveryDate, collectorId } = req.body; // SmartBin _id or binId and collector assignment
     
     console.log('Approve request received:', {
       requestId,
       binId,
       deliveryDate,
+      collectorId,
       body: req.body
     });
 
@@ -77,6 +78,18 @@ export const approveAndAssignRequest = async (req, res) => {
 
     if (request.status !== 'pending') {
       return res.status(400).json({ success: false, message: `Request already ${request.status}` });
+    }
+
+    // Validate collector if provided
+    let collector = null;
+    if (collectorId) {
+      collector = await User.findById(collectorId);
+      if (!collector) {
+        return res.status(404).json({ success: false, message: 'Collector not found' });
+      }
+      if (collector.role !== 'collector') {
+        return res.status(400).json({ success: false, message: 'Assigned user must be a collector' });
+      }
     }
 
     // Check payment verification (look for completed payment) - Optional check
@@ -103,10 +116,13 @@ export const approveAndAssignRequest = async (req, res) => {
     const delivery = await Delivery.create({
       bin: null, // Will be set when bin is created on delivery completion
       resident: request.resident._id,
+      deliveryTeam: collector ? collector._id : null, // Assign collector to delivery
       scheduledDate: deliveryDate ? new Date(deliveryDate) : 
                    request.preferredDeliveryDate ? new Date(request.preferredDeliveryDate) : 
                    new Date()
     });
+
+    console.log('approveAndAssignRequest: created delivery id=', delivery._id, 'assigned to collector:', collector ? collector._id : 'none');
 
     // Store delivery info in request for later use
     request.deliveryId = delivery._id;
@@ -120,6 +136,17 @@ export const approveAndAssignRequest = async (req, res) => {
       message: `Your ${request.requestedBinType} bin request has been approved. Delivery scheduled for ${new Date(delivery.scheduledDate).toLocaleDateString()}. Tracking: ${delivery.trackingNumber}`,
       priority: 'high'
     });
+
+    // Create notification for assigned collector
+    if (collector) {
+      await Notification.create({
+        recipient: collector._id,
+        type: 'general',
+        title: 'New Delivery Assignment',
+        message: `You have been assigned to deliver a ${request.requestedBinType} bin to ${request.resident.firstName} ${request.resident.lastName}. Scheduled: ${new Date(delivery.scheduledDate).toLocaleDateString()}. Tracking: ${delivery.trackingNumber}`,
+        priority: 'high'
+      });
+    }
 
     res.status(200).json({ success: true, data: { request, delivery } });
   } catch (error) {

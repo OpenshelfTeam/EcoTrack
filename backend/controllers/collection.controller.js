@@ -212,7 +212,7 @@ export const createCollectionRecord = async (req, res) => {
             collectorName: `${req.user.firstName} ${req.user.lastName}`,
             collectionDate: new Date()
           },
-          priority: status === 'exception' ? 'high' : 'normal'
+          priority: status === 'exception' ? 'high' : 'medium'
         });
       }
       
@@ -234,7 +234,7 @@ export const createCollectionRecord = async (req, res) => {
         
         notifications.push({
           recipient: admin._id,
-          type: status === 'exception' ? 'system' : 'collection',
+          type: status === 'exception' ? 'system' : 'general',
           title: status === 'exception' ? 'Collection Exception Reported' : 'Bin Collection Update',
           message: adminMessage,
           data: {

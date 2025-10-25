@@ -7,7 +7,8 @@ import {
   updatePickupStatus,
   assignCollector,
   cancelPickupRequest,
-  getPickupStats
+  getPickupStats,
+  completePickup
 } from '../controllers/pickup.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
 
@@ -34,5 +35,6 @@ router
 // Status and assignment routes
 router.patch('/:id/status', authorize('collector', 'operator', 'admin'), updatePickupStatus);
 router.patch('/:id/assign', authorize('operator', 'admin'), assignCollector);
+router.patch('/:id/complete', authorize('collector'), completePickup);
 
 export default router;

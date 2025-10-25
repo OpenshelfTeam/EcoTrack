@@ -68,6 +68,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     if (user?.role === 'collector') {
       return [
         ...baseItems,
+        { name: 'My Deliveries', icon: Truck, path: '/my-deliveries' },
         { name: 'My Routes', icon: Truck, path: '/routes' },
         { name: 'Map', icon: Map, path: '/map' },
         { name: 'Collections', icon: Trash2, path: '/collections' },

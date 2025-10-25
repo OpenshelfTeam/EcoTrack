@@ -16,6 +16,7 @@ const notificationSchema = new mongoose.Schema(
         "bin-request",
         "bin-delivered",
         "bin-activated",
+        "bin-damaged",
         "payment-due",
         "payment-received",
         "payment-failed",
@@ -54,7 +55,7 @@ const notificationSchema = new mongoose.Schema(
     relatedEntity: {
       entityType: {
         type: String,
-        enum: ["route", "bin", "payment", "ticket", "collection", "user"],
+        enum: ["route", "bin", "payment", "ticket", "collection", "pickup", "user"],
       },
       entityId: {
         type: mongoose.Schema.Types.ObjectId,

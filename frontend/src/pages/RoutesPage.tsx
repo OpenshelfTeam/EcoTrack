@@ -121,8 +121,75 @@ const createPickupIcon = (status: string) => {
       </div>
     `,
     iconSize: [44, 44],
-    iconAnchor: [12, 44],
-    popupAnchor: [10, -44]
+    iconAnchor: [14, 44],
+    popupAnchor: [8, -44]
+  });
+};
+
+// Create collector location icon (animated pulsing dot)
+const createCollectorIcon = () => {
+  return L.divIcon({
+    className: 'collector-location-marker',
+    html: `
+      <div style="
+        position: relative;
+        width: 24px;
+        height: 24px;
+      ">
+        <!-- Pulsing ring animation -->
+        <div style="
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 24px;
+          height: 24px;
+          background-color: rgba(59, 130, 246, 0.3);
+          border-radius: 50%;
+          animation: pulse 2s infinite;
+        "></div>
+        <!-- Outer ring -->
+        <div style="
+          position: absolute;
+          top: 4px;
+          left: 4px;
+          width: 16px;
+          height: 16px;
+          background-color: white;
+          border: 3px solid #3b82f6;
+          border-radius: 50%;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        "></div>
+        <!-- Inner dot -->
+        <div style="
+          position: absolute;
+          top: 8px;
+          left: 8px;
+          width: 8px;
+          height: 8px;
+          background-color: #3b82f6;
+          border-radius: 50%;
+        "></div>
+      </div>
+      <style>
+        @keyframes pulse {
+          0% {
+            transform: scale(1);
+            opacity: 0.8;
+          }
+          50% {
+            transform: scale(1.5);
+            opacity: 0.4;
+          }
+          100% {
+            transform: scale(2);
+            opacity: 0;
+          }
+        }
+      </style>
+    `,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12]
   });
 };
 
@@ -216,6 +283,16 @@ export const RoutesPage = () => {
     photo: null as File | null
   });
 
+  // GPS and Navigation states
+  const [collectorLocation, setCollectorLocation] = useState<[number, number] | null>(null);
+  const [selectedPickup, setSelectedPickup] = useState<any>(null);
+  const [watchId, setWatchId] = useState<number | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  // Pickup bin status states
+  const [showPickupBinStatusModal, setShowPickupBinStatusModal] = useState(false);
+  const [showPickupQRScanner, setShowPickupQRScanner] = useState(false);
+
   // Fetch routes with filters
   const { data: routesData, isLoading, error } = useQuery({
     queryKey: ['routes', filterStatus, filterArea, searchTerm],
@@ -226,11 +303,11 @@ export const RoutesPage = () => {
     })
   });
 
-  // Fetch assigned pickups for collectors to show on map
+  // Fetch assigned pickups for collectors to show on map and in list
   const { data: pickupsData } = useQuery({
     queryKey: ['assigned-pickups-map'],
     queryFn: () => pickupService.getAllPickups(),
-    enabled: user?.role === 'collector' && viewMode === 'map', // Only fetch for collectors in map view
+    enabled: user?.role === 'collector', // Fetch for collectors in both list and map view
   });
 
   // Fetch route statistics
@@ -246,6 +323,56 @@ export const RoutesPage = () => {
       console.error('[ROUTE STATS ERROR]:', (statsError as any).response?.data?.message || (statsError as Error).message);
     }
   }, [statsError]);
+
+  // GPS Tracking Effect - Track collector's location in real-time
+  useEffect(() => {
+    if (user?.role === 'collector' && viewMode === 'map') {
+      // Check if geolocation is available
+      if ('geolocation' in navigator) {
+        // Start watching position
+        const id = navigator.geolocation.watchPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            setCollectorLocation([latitude, longitude]);
+            setLocationError(null);
+            console.log('📍 Collector location updated:', { latitude, longitude });
+          },
+          (error) => {
+            console.error('GPS Error:', error);
+            setLocationError(error.message);
+            // Try to get location once if watch fails
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                const { latitude, longitude } = pos.coords;
+                setCollectorLocation([latitude, longitude]);
+                setLocationError(null);
+              },
+              (err) => {
+                console.error('Failed to get current position:', err);
+              }
+            );
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          }
+        );
+        
+        setWatchId(id);
+        
+        // Cleanup function
+        return () => {
+          if (id) {
+            navigator.geolocation.clearWatch(id);
+            console.log('🛑 Stopped GPS tracking');
+          }
+        };
+      } else {
+        setLocationError('Geolocation is not supported by your browser');
+      }
+    }
+  }, [user, viewMode]);
 
   // Create route mutation
   const createMutation = useMutation({
@@ -317,6 +444,20 @@ export const RoutesPage = () => {
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to complete route');
+    }
+  });
+
+  // Complete pickup mutation
+  const completePickupMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      pickupService.completePickup(id, data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['assigned-pickups-map'] });
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+      alert(response.message || 'Pickup completed successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to complete pickup');
     }
   });
 
@@ -765,6 +906,117 @@ export const RoutesPage = () => {
             </div>
           )}
         </div>
+
+        {/* My Assigned Pickups - Only for Collectors */}
+        {user?.role === 'collector' && pickupsData?.data && (
+          <div className="bg-gradient-to-br from-purple-50 via-pink-50 to-orange-50 rounded-xl border-2 border-purple-200 p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl shadow-lg">
+                  <Truck className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">My Assigned Pickups</h3>
+                  <p className="text-sm text-gray-600">Waste collection requests assigned to you</p>
+                </div>
+              </div>
+              <span className="px-4 py-2 bg-purple-600 text-white rounded-full font-bold text-lg shadow-lg">
+                {pickupsData.data.filter((p: any) => p.status === 'scheduled' || p.status === 'in-progress').length}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pickupsData.data
+                .filter((pickup: any) => pickup.status === 'scheduled' || pickup.status === 'in-progress')
+                .map((pickup: any) => (
+                <div
+                  key={pickup._id}
+                  className="bg-white rounded-xl border border-purple-200 p-5 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      pickup.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {pickup.status === 'scheduled' ? '📅 Scheduled' : '🚚 In Progress'}
+                    </span>
+                    <span className="text-xs text-gray-500">{pickup.requestId}</span>
+                  </div>
+
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center gap-2 text-sm">
+                      <MapPin className="w-4 h-4 text-purple-600" />
+                      <span className="text-gray-700 font-medium truncate">
+                        {pickup.pickupLocation?.address || 'Location'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Users className="w-4 h-4 text-purple-600" />
+                      <span className="text-gray-600">
+                        {pickup.requestedBy?.firstName} {pickup.requestedBy?.lastName}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Trash2 className="w-4 h-4 text-purple-600" />
+                      <span className="text-gray-600 capitalize">{pickup.wasteType} waste</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="w-4 h-4 text-purple-600" />
+                      <span className="text-gray-600">
+                        {new Date(pickup.scheduledDate || pickup.preferredDate).toLocaleDateString()} • {pickup.timeSlot}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-gray-200 flex gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedPickup(pickup);
+                        setViewMode('map');
+                        // Scroll to map section
+                        setTimeout(() => {
+                          const mapElement = document.getElementById('pickup-map-view');
+                          if (mapElement) {
+                            mapElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
+                        }, 100);
+                      }}
+                      className="flex-1 px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all text-sm font-medium flex items-center justify-center gap-1"
+                    >
+                      <MapIcon className="w-4 h-4" />
+                      View on Map
+                    </button>
+                    {pickup.status === 'scheduled' && (
+                      <button
+                        onClick={() => {
+                          // Navigate to pickup location
+                          if (pickup.pickupLocation?.coordinates) {
+                            const [lng, lat] = pickup.pickupLocation.coordinates;
+                            const address = pickup.pickupLocation.address || '';
+                            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                            window.open(googleMapsUrl, '_blank');
+                          } else {
+                            alert('Pickup location not available');
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium flex items-center justify-center gap-1"
+                      >
+                        <Navigation className="w-4 h-4" />
+                        Start
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {pickupsData.data.filter((p: any) => p.status === 'scheduled' || p.status === 'in-progress').length === 0 && (
+              <div className="text-center py-8 bg-white rounded-lg">
+                <Truck className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">No assigned pickups at the moment</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Routes List */}
         {viewMode === 'list' ? (
@@ -1371,6 +1623,286 @@ export const RoutesPage = () => {
                   </div>
                 </div>
               </div>
+            ) : selectedPickup ? (
+              // Pickup Navigation View with GPS
+              <div id="pickup-map-view" className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {/* Header */}
+                <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-500 to-pink-600 text-white">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-2xl font-bold flex items-center gap-2">
+                        <Navigation className="w-7 h-7" />
+                        Navigate to Pickup
+                      </h3>
+                      <p className="text-purple-100 mt-1">{selectedPickup.requestId}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedPickup(null);
+                        setViewMode('list');
+                      }}
+                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  {/* GPS Status */}
+                  <div className="bg-white/20 backdrop-blur rounded-lg p-3">
+                    {collectorLocation ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                        <span className="font-medium">GPS Active</span>
+                        <span className="text-purple-100">
+                          • {collectorLocation[0].toFixed(6)}, {collectorLocation[1].toFixed(6)}
+                        </span>
+                      </div>
+                    ) : locationError ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <AlertCircle className="w-4 h-4 text-red-300" />
+                        <span>GPS Error: {locationError}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Getting your location...</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Map */}
+                <div className="relative" style={{ height: '600px' }}>
+                  {selectedPickup.pickupLocation?.coordinates ? (
+                    <MapContainer
+                      center={collectorLocation || [7.8731, 80.7718]}
+                      zoom={collectorLocation ? 14 : 10}
+                      style={{ height: '100%', width: '100%' }}
+                      className="z-0"
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+
+                      {/* Collector's Current Location */}
+                      {collectorLocation && (
+                        <Marker
+                          position={collectorLocation}
+                          icon={createCollectorIcon()}
+                        >
+                          <Popup>
+                            <div className="text-sm">
+                              <p className="font-bold text-blue-600 mb-1">
+                                📍 Your Location
+                              </p>
+                              <p className="text-gray-600 text-xs">
+                                Live GPS Position
+                              </p>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      )}
+
+                      {/* Pickup Location Marker */}
+                      <Marker
+                        position={[
+                          selectedPickup.pickupLocation.coordinates[1],
+                          selectedPickup.pickupLocation.coordinates[0]
+                        ]}
+                        icon={createPickupIcon(selectedPickup.status)}
+                      >
+                        <Popup>
+                          <div className="text-sm max-w-xs">
+                            <p className="font-bold text-gray-900 mb-2">
+                              {selectedPickup.pickupLocation.address}
+                            </p>
+                            <div className="space-y-1 text-xs text-gray-600">
+                              <p>🗑️ {selectedPickup.wasteType} waste</p>
+                              <p>👤 {selectedPickup.requestedBy?.firstName} {selectedPickup.requestedBy?.lastName}</p>
+                              <p>📅 {new Date(selectedPickup.scheduledDate || selectedPickup.preferredDate).toLocaleDateString()}</p>
+                              <p>⏰ {selectedPickup.timeSlot}</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const [lng, lat] = selectedPickup.pickupLocation.coordinates;
+                                const address = selectedPickup.pickupLocation.address || '';
+                                const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                                window.open(googleMapsUrl, '_blank');
+                              }}
+                              className="w-full mt-3 px-3 py-2 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 flex items-center justify-center gap-1"
+                            >
+                              <Navigation className="w-3 h-3" />
+                              Open in Google Maps
+                            </button>
+                          </div>
+                        </Popup>
+                      </Marker>
+
+                      {/* Route Line from Collector to Pickup */}
+                      {collectorLocation && (
+                        <>
+                          <Polyline
+                            positions={[
+                              collectorLocation,
+                              [
+                                selectedPickup.pickupLocation.coordinates[1],
+                                selectedPickup.pickupLocation.coordinates[0]
+                              ]
+                            ]}
+                            color="#8b5cf6"
+                            weight={4}
+                            opacity={0.7}
+                            dashArray="10, 10"
+                          />
+                          {/* Direction arrow overlay */}
+                          <Polyline
+                            positions={[
+                              collectorLocation,
+                              [
+                                selectedPickup.pickupLocation.coordinates[1],
+                                selectedPickup.pickupLocation.coordinates[0]
+                              ]
+                            ]}
+                            color="#ffffff"
+                            weight={2}
+                            opacity={0.9}
+                            dashArray="5, 15"
+                          />
+                        </>
+                      )}
+                    </MapContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center bg-gray-100">
+                      <p className="text-gray-500">No location data available for this pickup</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Pickup Details & Actions */}
+                <div className="p-6 border-t border-gray-200 bg-gray-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {/* Pickup Info */}
+                    <div className="bg-white rounded-lg p-4 border border-gray-200">
+                      <h4 className="font-bold text-gray-900 mb-3">Pickup Information</h4>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                          <span className="text-gray-700">{selectedPickup.pickupLocation?.address}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-purple-600" />
+                          <span className="text-gray-700">
+                            {selectedPickup.requestedBy?.firstName} {selectedPickup.requestedBy?.lastName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Trash2 className="w-4 h-4 text-purple-600" />
+                          <span className="text-gray-700 capitalize">{selectedPickup.wasteType} waste</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-purple-600" />
+                          <span className="text-gray-700">
+                            {new Date(selectedPickup.scheduledDate || selectedPickup.preferredDate).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-purple-600" />
+                          <span className="text-gray-700">{selectedPickup.timeSlot}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Distance & Navigation */}
+                    <div className="bg-white rounded-lg p-4 border border-gray-200">
+                      <h4 className="font-bold text-gray-900 mb-3">Navigation</h4>
+                      {collectorLocation && selectedPickup.pickupLocation?.coordinates ? (
+                        <div className="space-y-3">
+                          <div className="text-center py-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg">
+                            <p className="text-sm text-gray-600 mb-1">Approximate Distance</p>
+                            <p className="text-3xl font-bold text-purple-600">
+                              {(() => {
+                                const lat1 = collectorLocation[0];
+                                const lon1 = collectorLocation[1];
+                                const lat2 = selectedPickup.pickupLocation.coordinates[1];
+                                const lon2 = selectedPickup.pickupLocation.coordinates[0];
+                                const R = 6371; // Earth's radius in km
+                                const dLat = (lat2 - lat1) * Math.PI / 180;
+                                const dLon = (lon2 - lon1) * Math.PI / 180;
+                                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                                        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                                        Math.sin(dLon/2) * Math.sin(dLon/2);
+                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                                const distance = R * c;
+                                return distance < 1 ? 
+                                  `${(distance * 1000).toFixed(0)} m` : 
+                                  `${distance.toFixed(1)} km`;
+                              })()}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">Straight line distance</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const [lng, lat] = selectedPickup.pickupLocation.coordinates;
+                              const address = selectedPickup.pickupLocation.address || '';
+                              const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                              window.open(googleMapsUrl, '_blank');
+                            }}
+                            className="w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-all flex items-center justify-center gap-2 font-medium"
+                          >
+                            <Navigation className="w-5 h-5" />
+                            Start Navigation
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-gray-400" />
+                          <p className="text-sm">Waiting for GPS location...</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3">
+                    {selectedPickup.status === 'scheduled' && (
+                      <button
+                        onClick={() => {
+                          // Navigate to pickup location
+                          if (selectedPickup.pickupLocation?.coordinates) {
+                            const [lng, lat] = selectedPickup.pickupLocation.coordinates;
+                            const address = selectedPickup.pickupLocation.address || '';
+                            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${encodeURIComponent(address)}`;
+                            window.open(googleMapsUrl, '_blank');
+                          } else {
+                            alert('Pickup location not available');
+                          }
+                        }}
+                        className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:shadow-lg transition-all font-medium flex items-center justify-center gap-2"
+                      >
+                        <Navigation className="w-5 h-5" />
+                        Start Navigation
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowPickupQRScanner(true)}
+                      className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-all font-medium flex items-center justify-center gap-2"
+                    >
+                      <QrCode className="w-5 h-5" />
+                      Scan QR Code
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedPickup(null);
+                        setViewMode('list');
+                      }}
+                      className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Back to List
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : (
               // Select Route to Start
               <div className="bg-white rounded-xl border border-gray-200 p-12">
@@ -1898,6 +2430,167 @@ export const RoutesPage = () => {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pickup QR Scanner Modal */}
+      {showPickupQRScanner && selectedPickup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-xl">
+                  <QrCode className="h-6 w-6 text-blue-600" />
+                </div>
+                Scan Bin QR Code
+              </h3>
+              <button
+                onClick={() => setShowPickupQRScanner(false)}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Scanner Area */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 mb-6 border-2 border-dashed border-blue-300">
+              <div className="text-center">
+                <QrCode className="h-24 w-24 text-blue-400 mx-auto mb-4 animate-pulse" />
+                <p className="text-gray-700 font-medium mb-2">Position QR code within frame</p>
+                <p className="text-sm text-gray-500">or tap NFC-enabled bin</p>
+                <div className="mt-4 p-3 bg-white/70 rounded-lg">
+                  <p className="text-xs font-medium text-gray-600">Pickup Location</p>
+                  <p className="text-sm font-bold text-gray-900">{selectedPickup.pickupLocation?.address || 'Pickup Location'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setShowPickupQRScanner(false);
+                  setShowPickupBinStatusModal(true);
+                }}
+                className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+              >
+                Confirm Scan
+              </button>
+              <button
+                onClick={() => setShowPickupQRScanner(false)}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pickup Bin Status Modal */}
+      {showPickupBinStatusModal && selectedPickup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-8 transform transition-all animate-fadeIn">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <CheckCircle className="h-6 w-6 text-emerald-600" />
+                </div>
+                Report Bin Status
+              </h3>
+              <button
+                onClick={() => {
+                  setShowPickupBinStatusModal(false);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6">
+              <p className="text-sm text-gray-600">Pickup Location</p>
+              <p className="text-lg font-bold text-gray-800">{selectedPickup.pickupLocation?.address || 'Pickup Location'}</p>
+              <div className="flex items-center gap-3 mt-2 text-sm text-gray-600">
+                <span>Resident: {selectedPickup.requestedBy?.firstName} {selectedPickup.requestedBy?.lastName}</span>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                <span>Type: {selectedPickup.wasteType}</span>
+                <span>•</span>
+                <span>ID: {selectedPickup.requestId}</span>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <p className="text-sm font-medium text-gray-700 mb-3">Select bin status:</p>
+              
+              <button
+                onClick={() => {
+                  completePickupMutation.mutate({
+                    id: selectedPickup._id,
+                    data: {
+                      binStatus: 'collected',
+                      collectorNotes: 'Waste collected successfully'
+                    }
+                  });
+                  setShowPickupBinStatusModal(false);
+                  setSelectedPickup(null);
+                  setViewMode('list');
+                }}
+                disabled={completePickupMutation.isPending}
+                className="w-full px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle className="h-6 w-6" />
+                {completePickupMutation.isPending ? 'Processing...' : 'Collected Successfully'}
+              </button>
+              
+              <button
+                onClick={() => {
+                  completePickupMutation.mutate({
+                    id: selectedPickup._id,
+                    data: {
+                      binStatus: 'empty',
+                      collectorNotes: 'No waste found in bin'
+                    }
+                  });
+                  setShowPickupBinStatusModal(false);
+                  setSelectedPickup(null);
+                  setViewMode('list');
+                }}
+                disabled={completePickupMutation.isPending}
+                className="w-full px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <XCircle className="h-5 w-5" />
+                {completePickupMutation.isPending ? 'Processing...' : 'No Waste (Empty)'}
+              </button>
+              
+              <button
+                onClick={() => {
+                  completePickupMutation.mutate({
+                    id: selectedPickup._id,
+                    data: {
+                      binStatus: 'damaged',
+                      collectorNotes: 'Bin is damaged and needs replacement'
+                    }
+                  });
+                  setShowPickupBinStatusModal(false);
+                  setSelectedPickup(null);
+                  setViewMode('list');
+                }}
+                disabled={completePickupMutation.isPending}
+                className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-orange-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <AlertCircle className="h-5 w-5" />
+                Damaged Bin
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowPickupBinStatusModal(false)}
+              className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

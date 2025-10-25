@@ -54,7 +54,7 @@ export const binRequestService = {
     return response.data;
   },
 
-  async approveRequest(requestId: string, data: { binId?: string; deliveryDate?: string }) {
+  async approveRequest(requestId: string, data: { binId?: string; deliveryDate?: string; collectorId?: string }) {
     const response = await api.post(`/bin-requests/${requestId}/approve`, data);
     return response.data;
   },
