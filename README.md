@@ -15,6 +15,15 @@ A comprehensive waste management system with IoT-enabled smart bins, route optim
 
 ## ✨ Features
 
+### 🔑 Key Features at a Glance
+
+- **Smart bin visibility** with QR/RFID-ready tracking for waste bins and collection points
+- **Role-based dashboards** for residents, collectors, operators, city authorities, and admins
+- **Pickup and route management** for scheduling requests, assigning teams, and tracking collections
+- **Real-time notifications** to keep users updated on pickups, issues, and service activity
+- **Payments and billing workflows** for managing service charges and payment verification
+- **Ticketing, feedback, and analytics** to resolve complaints quickly and monitor service performance
+
 ### 🧩 Core User Roles & Interfaces
 
 The system supports four main actor types:
